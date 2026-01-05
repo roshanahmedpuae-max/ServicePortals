@@ -1,0 +1,255 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground: #1a1a2e;
+  --background: #f8f9fc;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --accent: #f59e0b;
+  --success: #10b981;
+  --error: #ef4444;
+  --border: #e2e8f0;
+  --card-bg: #ffffff;
+  --muted: #64748b;
+  /* Safe area insets for mobile devices */
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  /* Prevent font scaling on orientation change */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  /* Prevent pull-to-refresh on mobile */
+  overscroll-behavior-y: contain;
+}
+
+body {
+  color: var(--foreground);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  /* Improve text rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Safe area padding */
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
+}
+
+/* Custom scrollbar - hidden on mobile for cleaner look */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+  }
+}
+
+/* Hide scrollbar on mobile */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  
+  * {
+    scrollbar-width: none;
+  }
+}
+
+/* Form input focus styles */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Larger touch targets for mobile */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select,
+  button {
+    min-height: 48px;
+    font-size: 16px !important; /* Prevent zoom on iOS */
+  }
+  
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"] {
+    min-height: 48px;
+  }
+}
+
+/* Signature canvas styles */
+.signature-canvas {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  background: #fafafa;
+  cursor: crosshair;
+  touch-action: none; /* Prevent scrolling while signing */
+}
+
+.signature-canvas:hover {
+  border-color: var(--primary);
+}
+
+/* Active state for touch devices */
+@media (hover: none) {
+  .signature-canvas:active {
+    border-color: var(--primary);
+  }
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* Section animation delays */
+.section-delay-1 { animation-delay: 0.1s; }
+.section-delay-2 { animation-delay: 0.2s; }
+.section-delay-3 { animation-delay: 0.3s; }
+.section-delay-4 { animation-delay: 0.4s; }
+.section-delay-5 { animation-delay: 0.5s; }
+
+/* Ensure dropdowns appear above other content */
+.dropdown-open {
+  z-index: 9999 !important;
+  position: relative;
+}
+
+/* Mobile-first button active states */
+@media (hover: none) {
+  button:active:not(:disabled) {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+}
+
+/* Smooth transitions for interactive elements */
+button,
+input,
+textarea,
+select,
+a {
+  transition: all 0.2s ease;
+}
+
+/* Fix for iOS input zoom */
+@supports (-webkit-touch-callout: none) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* Prevent text selection on buttons and interactive elements */
+button,
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Mobile sticky footer button area */
+@media (max-width: 640px) {
+  .mobile-sticky-footer {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: linear-gradient(to top, rgba(249, 250, 251, 1) 80%, rgba(249, 250, 251, 0));
+    padding-top: 1rem;
+    padding-bottom: calc(1rem + var(--safe-area-inset-bottom));
+  }
+}
+
+/* Improve form section spacing on mobile */
+@media (max-width: 640px) {
+  .form-section-mobile {
+    padding: 1rem;
+  }
+}
+
+/* Card shadow optimization for mobile */
+@media (max-width: 640px) {
+  .mobile-card {
+    border-radius: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* Pulse animation for primary action button */
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+.pulse-button {
+  animation: pulse-ring 2s infinite;
+}
