@@ -9,6 +9,7 @@ import { MdDelete } from "react-icons/md";
 import { BsFillSendFill } from "react-icons/bs";
 import { IoMdAddCircle } from "react-icons/io";
 import { IoFilter, IoNotifications } from "react-icons/io5";
+import { AiFillNotification } from "react-icons/ai";
 import * as XLSX from "xlsx";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -51,6 +52,13 @@ type Customer = {
   id: string;
   name: string;
   contact?: string;
+};
+
+type CustomerUser = {
+  id: string;
+  email: string;
+  username: string;
+  companyName?: string;
 };
 
 type ServiceType = {
@@ -127,14 +135,17 @@ export default function AdminDashboard() {
   const [editPayrollNotes, setEditPayrollNotes] = useState("");
   const [submittingPayrollEdit, setSubmittingPayrollEdit] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
-  const [notificationRecipientType, setNotificationRecipientType] = useState<"employee" | "customer">("employee");
+  const [notificationRecipientType, setNotificationRecipientType] = useState<"employee" | "customer" | "both">("employee");
   const [notificationSelectedEmployeeIds, setNotificationSelectedEmployeeIds] = useState<string[]>([]);
   const [notificationSelectedCustomerIds, setNotificationSelectedCustomerIds] = useState<string[]>([]);
-  const [notificationSendToAll, setNotificationSendToAll] = useState(false);
+  const [notificationSendToAllEmployees, setNotificationSendToAllEmployees] = useState(false);
+  const [notificationSendToAllCustomers, setNotificationSendToAllCustomers] = useState(false);
   const [notificationTitle, setNotificationTitle] = useState("");
   const [notificationMessage, setNotificationMessage] = useState("");
   const [submittingNotification, setSubmittingNotification] = useState(false);
-  const [notificationRecipientSearch, setNotificationRecipientSearch] = useState("");
+  const [notificationEmployeeSearch, setNotificationEmployeeSearch] = useState("");
+  const [notificationCustomerSearch, setNotificationCustomerSearch] = useState("");
+  const [customerUsers, setCustomerUsers] = useState<CustomerUser[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [dailySchedules, setDailySchedules] = useState<DailySchedule[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -444,6 +455,12 @@ export default function AdminDashboard() {
         setAssetNotifications(Array.isArray(notifications) ? notifications : []);
       } catch {
         setAssetNotifications([]);
+      }
+      try {
+        const customerUsersData = await authedFetch("/api/admin/customer-users");
+        setCustomerUsers(Array.isArray(customerUsersData) ? customerUsersData : []);
+      } catch {
+        setCustomerUsers([]);
       }
       if (adminAuth?.businessUnit === "PrintersUAE") {
         try {
@@ -1228,6 +1245,14 @@ export default function AdminDashboard() {
               </p>
             </div>
             <div className="flex gap-2 sm:gap-3 items-center">
+              <button
+                type="button"
+                onClick={() => setShowNotificationModal(true)}
+                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 transition"
+                title="Send notification"
+              >
+                <AiFillNotification className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
               <div className="relative">
                 <button
                   ref={notificationButtonRef}
@@ -3743,7 +3768,7 @@ export default function AdminDashboard() {
                   </div>
                   <button
                     onClick={() => setShowNotifications(false)}
-                    className="rounded-full bg-slate-100 text-slate-600 w-9 h-9 grid place-items-center"
+                    className="rounded-full bg-slate-100 text-slate-600 w-9 h-9 grid place-items-center hover:bg-slate-200"
                     aria-label="Close notifications"
                   >
                     ✕
@@ -3885,6 +3910,374 @@ export default function AdminDashboard() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Notification sending modal */}
+          {showNotificationModal && adminAuth && (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-8 bg-slate-900/70 backdrop-blur-sm"
+              onClick={() => {
+                setShowNotificationModal(false);
+                setNotificationTitle("");
+                setNotificationMessage("");
+                setNotificationRecipientType("employee");
+                setNotificationSelectedEmployeeIds([]);
+                setNotificationSelectedCustomerIds([]);
+                setNotificationSendToAllEmployees(false);
+                setNotificationSendToAllCustomers(false);
+                setNotificationEmployeeSearch("");
+                setNotificationCustomerSearch("");
+              }}
+            >
+              <div
+                className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                  <div className="flex items-center gap-2">
+                    <span className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center">
+                      <AiFillNotification className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Send Notification</p>
+                      <p className="text-sm font-semibold text-slate-900">Create and send notification</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowNotificationModal(false);
+                      setNotificationTitle("");
+                      setNotificationMessage("");
+                      setNotificationRecipientType("employee");
+                      setNotificationSelectedEmployeeIds([]);
+                      setNotificationSelectedCustomerIds([]);
+                      setNotificationSendToAllEmployees(false);
+                      setNotificationSendToAllCustomers(false);
+                      setNotificationEmployeeSearch("");
+                      setNotificationCustomerSearch("");
+                    }}
+                    className="rounded-full bg-slate-100 text-slate-600 w-9 h-9 grid place-items-center hover:bg-slate-200"
+                    aria-label="Close notification modal"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-5 space-y-5">
+                  {/* Recipient Type Selection */}
+                  <div className="space-y-3">
+                    <label className="text-sm font-semibold text-slate-700">Recipient Type</label>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotificationRecipientType("employee");
+                          setNotificationSelectedCustomerIds([]);
+                          setNotificationSendToAllCustomers(false);
+                        }}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          notificationRecipientType === "employee"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        Employees
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotificationRecipientType("customer");
+                          setNotificationSelectedEmployeeIds([]);
+                          setNotificationSendToAllEmployees(false);
+                        }}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          notificationRecipientType === "customer"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        Customers
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationRecipientType("both")}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          notificationRecipientType === "both"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        Both
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Employee Selection */}
+                  {(notificationRecipientType === "employee" || notificationRecipientType === "both") && (
+                    <div className="space-y-3 p-4 bg-slate-50 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-semibold text-slate-700">Employees</label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={notificationSendToAllEmployees}
+                            onChange={(e) => {
+                              setNotificationSendToAllEmployees(e.target.checked);
+                              if (e.target.checked) {
+                                setNotificationSelectedEmployeeIds([]);
+                              }
+                            }}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                          />
+                          <span className="text-sm text-slate-600">Send to all employees</span>
+                        </label>
+                      </div>
+                      {!notificationSendToAllEmployees && (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            placeholder="Search employees..."
+                            value={notificationEmployeeSearch}
+                            onChange={(e) => setNotificationEmployeeSearch(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                            {employees
+                              .filter((emp) =>
+                                emp.name.toLowerCase().includes(notificationEmployeeSearch.toLowerCase())
+                              )
+                              .map((emp) => (
+                                <label
+                                  key={emp.id}
+                                  className="flex items-center gap-2 p-2 hover:bg-slate-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={notificationSelectedEmployeeIds.includes(emp.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setNotificationSelectedEmployeeIds([...notificationSelectedEmployeeIds, emp.id]);
+                                      } else {
+                                        setNotificationSelectedEmployeeIds(
+                                          notificationSelectedEmployeeIds.filter((id) => id !== emp.id)
+                                        );
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                  />
+                                  <span className="text-sm text-slate-700">
+                                    {emp.name} {emp.role ? `(${emp.role})` : ""}
+                                  </span>
+                                </label>
+                              ))}
+                          </div>
+                          {notificationSelectedEmployeeIds.length > 0 && (
+                            <p className="text-xs text-slate-500">
+                              {notificationSelectedEmployeeIds.length} employee(s) selected
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Customer Selection */}
+                  {(notificationRecipientType === "customer" || notificationRecipientType === "both") && (
+                    <div className="space-y-3 p-4 bg-slate-50 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-semibold text-slate-700">Customers</label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={notificationSendToAllCustomers}
+                            onChange={(e) => {
+                              setNotificationSendToAllCustomers(e.target.checked);
+                              if (e.target.checked) {
+                                setNotificationSelectedCustomerIds([]);
+                              }
+                            }}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                          />
+                          <span className="text-sm text-slate-600">Send to all customers</span>
+                        </label>
+                      </div>
+                      {!notificationSendToAllCustomers && (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            placeholder="Search customers..."
+                            value={notificationCustomerSearch}
+                            onChange={(e) => setNotificationCustomerSearch(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                            {customerUsers
+                              .filter((cu) =>
+                                cu.username.toLowerCase().includes(notificationCustomerSearch.toLowerCase()) ||
+                                cu.email.toLowerCase().includes(notificationCustomerSearch.toLowerCase()) ||
+                                (cu.companyName && cu.companyName.toLowerCase().includes(notificationCustomerSearch.toLowerCase()))
+                              )
+                              .map((cu) => (
+                                <label
+                                  key={cu.id}
+                                  className="flex items-center gap-2 p-2 hover:bg-slate-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={notificationSelectedCustomerIds.includes(cu.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setNotificationSelectedCustomerIds([...notificationSelectedCustomerIds, cu.id]);
+                                      } else {
+                                        setNotificationSelectedCustomerIds(
+                                          notificationSelectedCustomerIds.filter((id) => id !== cu.id)
+                                        );
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                                  />
+                                  <span className="text-sm text-slate-700">
+                                    {cu.companyName || cu.username} ({cu.email})
+                                  </span>
+                                </label>
+                              ))}
+                          </div>
+                          {notificationSelectedCustomerIds.length > 0 && (
+                            <p className="text-xs text-slate-500">
+                              {notificationSelectedCustomerIds.length} customer(s) selected
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Title Input */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">
+                      Title <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={notificationTitle}
+                      onChange={(e) => setNotificationTitle(e.target.value)}
+                      placeholder="Enter notification title"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      required
+                    />
+                  </div>
+
+                  {/* Message Input */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">
+                      Message <span className="text-rose-500">*</span>
+                    </label>
+                    <textarea
+                      value={notificationMessage}
+                      onChange={(e) => setNotificationMessage(e.target.value)}
+                      placeholder="Enter notification message"
+                      rows={5}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNotificationModal(false);
+                      setNotificationTitle("");
+                      setNotificationMessage("");
+                      setNotificationRecipientType("employee");
+                      setNotificationSelectedEmployeeIds([]);
+                      setNotificationSelectedCustomerIds([]);
+                      setNotificationSendToAllEmployees(false);
+                      setNotificationSendToAllCustomers(false);
+                      setNotificationEmployeeSearch("");
+                      setNotificationCustomerSearch("");
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+                    disabled={submittingNotification}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!notificationTitle.trim() || !notificationMessage.trim()) {
+                        toast.error("Title and message are required");
+                        return;
+                      }
+
+                      // Validate selections
+                      if (notificationRecipientType === "employee" && !notificationSendToAllEmployees && notificationSelectedEmployeeIds.length === 0) {
+                        toast.error("Please select at least one employee or select 'Send to all employees'");
+                        return;
+                      }
+
+                      if (notificationRecipientType === "customer" && !notificationSendToAllCustomers && notificationSelectedCustomerIds.length === 0) {
+                        toast.error("Please select at least one customer or select 'Send to all customers'");
+                        return;
+                      }
+
+                      if (notificationRecipientType === "both") {
+                        if (!notificationSendToAllEmployees && notificationSelectedEmployeeIds.length === 0 &&
+                            !notificationSendToAllCustomers && notificationSelectedCustomerIds.length === 0) {
+                          toast.error("Please select at least one recipient");
+                          return;
+                        }
+                      }
+
+                      setSubmittingNotification(true);
+                      try {
+                        const payload: any = {
+                          title: notificationTitle.trim(),
+                          message: notificationMessage.trim(),
+                          recipientType: notificationRecipientType,
+                        };
+
+                        if (notificationRecipientType === "employee" || notificationRecipientType === "both") {
+                          if (!notificationSendToAllEmployees && notificationSelectedEmployeeIds.length > 0) {
+                            payload.employeeIds = notificationSelectedEmployeeIds;
+                          }
+                        }
+
+                        if (notificationRecipientType === "customer" || notificationRecipientType === "both") {
+                          if (!notificationSendToAllCustomers && notificationSelectedCustomerIds.length > 0) {
+                            payload.customerIds = notificationSelectedCustomerIds;
+                          }
+                        }
+
+                        const response = await authedFetch("/api/admin/notifications/manual", {
+                          method: "POST",
+                          body: JSON.stringify(payload),
+                        });
+
+                        toast.success(`Notification sent successfully to ${response.count || 0} recipient(s)`);
+                        setShowNotificationModal(false);
+                        setNotificationTitle("");
+                        setNotificationMessage("");
+                        setNotificationRecipientType("employee");
+                        setNotificationSelectedEmployeeIds([]);
+                        setNotificationSelectedCustomerIds([]);
+                        setNotificationSendToAllEmployees(false);
+                        setNotificationSendToAllCustomers(false);
+                        setNotificationEmployeeSearch("");
+                        setNotificationCustomerSearch("");
+                      } catch (error) {
+                        toast.error((error as Error).message || "Failed to send notification");
+                      } finally {
+                        setSubmittingNotification(false);
+                      }
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={submittingNotification}
+                  >
+                    {submittingNotification ? "Sending..." : "Send Notification"}
+                  </button>
                 </div>
               </div>
             </div>

@@ -18,9 +18,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!body?.recipientType || !["employee", "customer"].includes(body.recipientType)) {
+    if (!body?.recipientType || !["employee", "customer", "both"].includes(body.recipientType)) {
       return NextResponse.json(
-        { error: "recipientType must be 'employee' or 'customer'" },
+        { error: "recipientType must be 'employee', 'customer', or 'both'" },
         { status: 400 }
       );
     }
@@ -29,10 +29,11 @@ export async function POST(request: NextRequest) {
 
     const notifications = [];
 
-    if (body.recipientType === "employee") {
-      if (body.employeeIds && Array.isArray(body.employeeIds) && body.employeeIds.length > 0) {
+    // Helper function to send to employees
+    const sendToEmployees = async (employeeIds?: string[]) => {
+      if (employeeIds && Array.isArray(employeeIds) && employeeIds.length > 0) {
         // Send to specific employees
-        for (const employeeId of body.employeeIds) {
+        for (const employeeId of employeeIds) {
           const notification = await EmployeeNotificationModel.create({
             employeeId,
             businessUnit: user.businessUnit,
@@ -61,10 +62,13 @@ export async function POST(request: NextRequest) {
           notifications.push(notification);
         }
       }
-    } else if (body.recipientType === "customer") {
-      if (body.customerIds && Array.isArray(body.customerIds) && body.customerIds.length > 0) {
+    };
+
+    // Helper function to send to customers
+    const sendToCustomers = async (customerIds?: string[]) => {
+      if (customerIds && Array.isArray(customerIds) && customerIds.length > 0) {
         // Send to specific customers
-        for (const customerId of body.customerIds) {
+        for (const customerId of customerIds) {
           const notification = await CustomerNotificationModel.create({
             customerId,
             businessUnit: user.businessUnit,
@@ -93,6 +97,16 @@ export async function POST(request: NextRequest) {
           notifications.push(notification);
         }
       }
+    };
+
+    if (body.recipientType === "employee") {
+      await sendToEmployees(body.employeeIds);
+    } else if (body.recipientType === "customer") {
+      await sendToCustomers(body.customerIds);
+    } else if (body.recipientType === "both") {
+      // Send to both employees and customers
+      await sendToEmployees(body.employeeIds);
+      await sendToCustomers(body.customerIds);
     }
 
     return NextResponse.json({
