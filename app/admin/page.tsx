@@ -75,6 +75,7 @@ type Employee = {
   name: string;
   role: string;
   status: EmployeeStatus;
+  featureAccess?: string[];
 };
 
 const Card = ({
