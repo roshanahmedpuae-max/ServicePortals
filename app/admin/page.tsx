@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState, useMemo, Fragment, FormEvent, useRef, ChangeEvent, useCallback } from "react";
-import { RiMenu5Fill, RiAdvertisementFill } from "react-icons/ri";
-import { BiSolidHomeSmile } from "react-icons/bi";
+import { RiMenu5Fill, RiAdvertisementFill, RiDashboardFill, RiCalendarScheduleFill } from "react-icons/ri";
+import { BiSolidHomeSmile, BiLogoDailymotion } from "react-icons/bi";
 import { FaSignOutAlt, FaUserShield, FaEye, FaRegEye } from "react-icons/fa";
-import { MdModeEdit } from "react-icons/md";
-import { MdDelete } from "react-icons/md";
+import { FaFileInvoiceDollar } from "react-icons/fa6";
+import { MdModeEdit, MdDelete, MdInventory2 } from "react-icons/md";
 import { BsFillSendFill } from "react-icons/bs";
 import { IoMdAddCircle } from "react-icons/io";
-import { IoFilter, IoNotifications } from "react-icons/io5";
+import { IoFilter, IoNotifications, IoSettings, IoTicketSharp } from "react-icons/io5";
 import { AiFillNotification } from "react-icons/ai";
 import * as XLSX from "xlsx";
 import toast, { Toaster } from "react-hot-toast";
@@ -174,6 +174,7 @@ export default function AdminDashboard() {
   const [assignCustomerId, setAssignCustomerId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [editingWorkOrderId, setEditingWorkOrderId] = useState<string | null>(null);
   const [editWorkOrderCustomerId, setEditWorkOrderCustomerId] = useState<string>("");
   const [editWorkOrderCustomerName, setEditWorkOrderCustomerName] = useState<string>("");
@@ -369,44 +370,44 @@ export default function AdminDashboard() {
     });
     return counts;
   }, [assetNotifications]);
-  const tabs: { id: TabId; label: string }[] = useMemo(() => {
+  const tabs: { id: TabId; label: string; icon: JSX.Element }[] = useMemo(() => {
     if (!adminAuth) return [];
     
-    const base: { id: TabId; label: string }[] = [];
+    const base: { id: TabId; label: string; icon: JSX.Element }[] = [];
     const featureAccess = adminAuth.featureAccess || [];
     const isAdmin = adminAuth.role === "admin";
     
     // Dashboard: always visible if logged in
-    base.push({ id: "dashboard", label: "Dashboard" });
+    base.push({ id: "dashboard", label: "Dashboard", icon: <RiDashboardFill /> });
     
     // Assets: requires "assets" access
     if (isAdmin || featureAccess.includes("assets")) {
-      base.push({ id: "assets", label: "Assets" });
+      base.push({ id: "assets", label: "Assets", icon: <MdInventory2 /> });
     }
     
     // Setup: requires "setup" access (admin only)
     if (isAdmin || featureAccess.includes("setup")) {
-      base.push({ id: "setup", label: "Setup" });
+      base.push({ id: "setup", label: "Setup", icon: <IoSettings /> });
     }
     
     // Payroll: requires "payroll" access
     if (isAdmin || featureAccess.includes("payroll")) {
-      base.push({ id: "payroll", label: "Payroll" });
+      base.push({ id: "payroll", label: "Payroll", icon: <FaFileInvoiceDollar /> });
     }
     
     // Schedule Works: requires "schedule_works" access
     if (isAdmin || featureAccess.includes("schedule_works")) {
-      base.push({ id: "assign-work", label: "Schedule Works" });
+      base.push({ id: "assign-work", label: "Schedule Works", icon: <RiCalendarScheduleFill /> });
     }
     
     // Tickets: requires "tickets" access
     if (isAdmin || featureAccess.includes("tickets")) {
-      base.push({ id: "tickets", label: "Tickets" });
+      base.push({ id: "tickets", label: "Tickets", icon: <IoTicketSharp /> });
     }
     
     // Daily Schedule: PrintersUAE only and requires "schedule_works" access
     if (adminAuth.businessUnit === "PrintersUAE" && (isAdmin || featureAccess.includes("schedule_works"))) {
-      base.push({ id: "daily-schedule", label: "Daily Work Schedules" });
+      base.push({ id: "daily-schedule", label: "Daily Work Schedules", icon: <BiLogoDailymotion /> });
     }
     
     return base;
@@ -1620,33 +1621,72 @@ export default function AdminDashboard() {
 
         {adminAuth && (
           <section className="space-y-4 animate-fade-in">
-            <div className="grid lg:grid-cols-[260px_1fr] gap-4">
-              <aside className="hidden md:block bg-white/10 border border-white/10 rounded-2xl p-4 space-y-2 shadow-xl">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 ${
-                      activeTab === tab.id
-                        ? "bg-white/20 text-white shadow translate-x-1"
-                        : "text-white/80 hover:bg-white/10 hover:translate-x-1"
-                    }`}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span>{tab.label}</span>
-                      {tab.id === "assets" && assetNotificationCount > 0 && (
-                        <span className="inline-flex items-center justify-center rounded-full bg-rose-500 text-white text-[11px] px-2 py-0.5">
-                          {assetNotificationCount > 9 ? "9+" : assetNotificationCount}
-                        </span>
-                      )}
-                      {tab.id === "payroll" && pendingLeaveCount > 0 && (
-                        <span className="inline-flex items-center justify-center rounded-full bg-rose-500 text-white text-[11px] px-2 py-0.5">
-                          {pendingLeaveCount > 9 ? "9+" : pendingLeaveCount}
-                        </span>
-                      )}
+            <div
+              className={`grid gap-4 ${
+                isSidebarCollapsed ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[260px_1fr]"
+              }`}
+            >
+              <aside
+                className={`hidden md:flex flex-col bg-white/10 border border-white/10 rounded-2xl shadow-xl ${
+                  isSidebarCollapsed ? "p-2 items-center gap-2" : "p-4 gap-2"
+                }`}
+              >
+                <div className="flex items-center w-full justify-between mb-1">
+                  {!isSidebarCollapsed && (
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white/70">
+                      Admin Menu
                     </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/10 text-white/80 hover:bg-white/20 text-xs"
+                    aria-label="Toggle sidebar"
+                  >
+                    {isSidebarCollapsed ? "»" : "«"}
                   </button>
-                ))}
+                </div>
+
+                <div className="flex-1 space-y-2 w-full">
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 ${
+                        activeTab === tab.id
+                          ? "bg-white/20 text-white shadow translate-x-1"
+                          : "text-white/80 hover:bg-white/10 hover:translate-x-1"
+                      }`}
+                    >
+                      <span
+                        className={`flex items-center gap-2 ${
+                          isSidebarCollapsed ? "justify-center" : "justify-between"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="flex items-center justify-center w-5 h-5">
+                            {tab.icon}
+                          </span>
+                          {!isSidebarCollapsed && <span>{tab.label}</span>}
+                        </span>
+                        {!isSidebarCollapsed && (
+                          <>
+                            {tab.id === "assets" && assetNotificationCount > 0 && (
+                              <span className="inline-flex items-center justify-center rounded-full bg-rose-500 text-white text-[11px] px-2 py-0.5">
+                                {assetNotificationCount > 9 ? "9+" : assetNotificationCount}
+                              </span>
+                            )}
+                            {tab.id === "payroll" && pendingLeaveCount > 0 && (
+                              <span className="inline-flex items-center justify-center rounded-full bg-rose-500 text-white text-[11px] px-2 py-0.5">
+                                {pendingLeaveCount > 9 ? "9+" : pendingLeaveCount}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </aside>
 
               <div className="space-y-4">
@@ -4100,7 +4140,12 @@ export default function AdminDashboard() {
                         activeTab === tab.id ? "bg-indigo-50 text-indigo-700" : "text-slate-800 hover:bg-slate-50"
                       }`}
                     >
-                      <span>{tab.label}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="flex items-center justify-center w-5 h-5 text-slate-600">
+                          {tab.icon}
+                        </span>
+                        <span>{tab.label}</span>
+                      </span>
                       {activeTab === tab.id && <span className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-700">Active</span>}
                     </button>
                   ))}
