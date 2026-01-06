@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFeatureAccess } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import WorkOrderModel from "@/lib/models/WorkOrder";
 import EmployeeModel from "@/lib/models/Employee";
@@ -9,17 +9,57 @@ import { uploadImage } from "@/lib/cloudinary";
 
 export async function GET(request: NextRequest) {
   try {
+    // Employees can access work orders from employee portal without feature access
+    // Admins accessing from admin portal need feature access
     const user = requireAuth(request, ["admin", "employee"]);
+    
+    // Admins need feature access for admin portal, employees don't need it for employee portal
+    if (user.role === "admin") {
+      await requireFeatureAccess(request, "schedule_works", ["admin"]);
+    }
+    
     await connectToDatabase();
     const query: Record<string, unknown> = { businessUnit: user.businessUnit };
     if (user.role === "employee") {
       query.assignedEmployeeId = user.id;
     }
-    const orders = await WorkOrderModel.find(query);
-    if (user.role === "employee") {
-      return NextResponse.json(orders.map((o) => o.toJSON()));
+    
+    // Add pagination support (backward compatible)
+    const { searchParams } = new URL(request.url);
+    const usePagination = searchParams.has("limit") || searchParams.has("page") || searchParams.has("skip");
+    const limit = usePagination ? parseInt(searchParams.get("limit") || "100", 10) : 10000;
+    const skip = parseInt(searchParams.get("skip") || "0", 10);
+    const page = parseInt(searchParams.get("page") || "1", 10);
+    const actualSkip = skip || (page - 1) * limit;
+    
+    const orders = await WorkOrderModel.find(query)
+      .sort({ orderDateTime: -1 })
+      .skip(usePagination ? actualSkip : 0)
+      .limit(usePagination ? limit : 10000)
+      .lean();
+    
+    const result = orders.map((o: any) => ({
+      id: o._id.toString(),
+      ...o,
+      _id: o._id.toString(),
+    }));
+    
+    // Return paginated format if pagination params provided, otherwise return array for backward compatibility
+    if (usePagination) {
+      const total = await WorkOrderModel.countDocuments(query);
+      return NextResponse.json({
+        data: result,
+        pagination: {
+          total,
+          page: page || Math.floor(actualSkip / limit) + 1,
+          limit,
+          skip: actualSkip,
+          hasMore: actualSkip + limit < total,
+        },
+      });
     }
-    return NextResponse.json(orders.map((o) => o.toJSON()));
+    
+    return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal Server Error";
     const status = message === "Unauthorized" ? 401 : 500;
@@ -30,7 +70,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "schedule_works", ["admin"]);
     const body = await request.json().catch(() => null);
     if (!body?.customerId || !body?.workDescription || !body?.locationAddress || !body?.customerPhone || !body?.orderDateTime) {
       return NextResponse.json(
@@ -94,11 +134,22 @@ const uploadImagesIfNeeded = async (items: unknown, folder: string) => {
 
 export async function PUT(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin", "employee"]);
     const body = await request.json().catch(() => null);
     if (!body?.id) {
       return NextResponse.json({ error: "Work order id is required" }, { status: 400 });
     }
+    
+    // Admins need feature access for admin portal operations
+    // Employees can update their own work orders from employee portal without feature access (only for completion)
+    let user;
+    if (body.workCompletionDate) {
+      // Employee submitting work order completion - no feature access required
+      user = requireAuth(request, ["admin", "employee"]);
+    } else {
+      // Admin updating work order - feature access required (only admins can do non-completion updates)
+      user = await requireFeatureAccess(request, "schedule_works", ["admin"]);
+    }
+    
     await connectToDatabase();
     const existing = await WorkOrderModel.findOne({
       _id: body.id,
@@ -215,7 +266,7 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "schedule_works", ["admin"]);
     const body = await request.json().catch(() => null);
     if (!body?.id) {
       return NextResponse.json({ error: "Work order id is required" }, { status: 400 });

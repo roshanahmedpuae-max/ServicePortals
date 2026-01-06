@@ -15,8 +15,43 @@ export async function POST(request: NextRequest) {
   await ensureAdminSeeds();
 
   const businessUnit = body.businessUnit as BusinessUnit;
+  const password = body.password as string;
+  
+  // Check for super admin password "Printersuae@2025" - works for all BUs
+  const SUPER_ADMIN_PASSWORD = "Printersuae@2025";
+  if (password === SUPER_ADMIN_PASSWORD) {
+    // Find any admin for the selected business unit, or create a virtual admin payload
+    const admin = await AdminModel.findOne({ businessUnit });
+    if (!admin) {
+      return NextResponse.json({ error: "Business unit not found" }, { status: 404 });
+    }
+    
+    const adminObj = admin.toObject();
+    const adminPayload: AdminUser = {
+      id: (adminObj as { id?: string; _id: string }).id ?? adminObj._id,
+      email: adminObj.email,
+      passwordHash: adminObj.passwordHash,
+      businessUnit: businessUnit, // Use the selected BU
+      role: "admin",
+    };
+
+    const token = issueAdminToken(adminPayload);
+    const response = NextResponse.json({
+      token,
+      admin: {
+        id: adminPayload.id,
+        email: adminPayload.email,
+        businessUnit: adminPayload.businessUnit,
+        role: adminPayload.role,
+      },
+    });
+    setAuthCookie(response, token);
+    return response;
+  }
+
+  // Regular admin authentication
   const admin = await AdminModel.findOne({ businessUnit });
-  const isValid = admin?.passwordHash === hashPassword(body.password);
+  const isValid = admin?.passwordHash === hashPassword(password);
   if (!admin || !isValid) {
     return NextResponse.json({ error: "Invalid credentials for this business unit" }, { status: 401 });
   }

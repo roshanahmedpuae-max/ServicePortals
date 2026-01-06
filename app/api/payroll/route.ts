@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFeatureAccess } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import PayrollModel from "@/lib/models/Payroll";
 import EmployeeModel from "@/lib/models/Employee";
@@ -8,7 +8,15 @@ import { getPayrollDateForPeriod } from "@/lib/payroll-utils";
 
 export async function GET(request: NextRequest) {
   try {
+    // Employees can access their own payroll from employee portal without feature access
+    // Admins accessing from admin portal need feature access
     const user = requireAuth(request, ["admin", "employee"]);
+    
+    // Admins need feature access for admin portal, employees don't need it for employee portal
+    if (user.role === "admin") {
+      await requireFeatureAccess(request, "payroll", ["admin"]);
+    }
+    
     await connectToDatabase();
 
     const { searchParams } = new URL(request.url);
@@ -37,14 +45,23 @@ export async function GET(request: NextRequest) {
     }
     if (status) query.status = status;
 
+    // Add pagination support (backward compatible)
+    const usePagination = searchParams.has("limit") || searchParams.has("page") || searchParams.has("skip");
+    const limit = usePagination ? parseInt(searchParams.get("limit") || "100", 10) : 10000;
+    const skip = parseInt(searchParams.get("skip") || "0", 10);
+    const page = parseInt(searchParams.get("page") || "1", 10);
+    const actualSkip = skip || (page - 1) * limit;
+
     const payrolls = await PayrollModel.find(query)
       .sort({ period: -1, createdAt: -1 })
+      .skip(usePagination ? actualSkip : 0)
+      .limit(usePagination ? limit : 10000)
       .lean();
 
-    return NextResponse.json(payrolls.map((p) => {
+    const result = payrolls.map((p) => {
       const payroll = p as any;
       return {
-        id: payroll._id,
+        id: payroll._id.toString(),
         employeeId: payroll.employeeId,
         employeeName: payroll.employeeName,
         businessUnit: payroll.businessUnit,
@@ -71,7 +88,24 @@ export async function GET(request: NextRequest) {
         createdAt: payroll.createdAt ? new Date(payroll.createdAt).toISOString() : undefined,
         updatedAt: payroll.updatedAt ? new Date(payroll.updatedAt).toISOString() : undefined,
       };
-    }));
+    });
+    
+    // Return paginated format if pagination params provided, otherwise return array for backward compatibility
+    if (usePagination) {
+      const total = await PayrollModel.countDocuments(query);
+      return NextResponse.json({
+        data: result,
+        pagination: {
+          total,
+          page: page || Math.floor(actualSkip / limit) + 1,
+          limit,
+          skip: actualSkip,
+          hasMore: actualSkip + limit < total,
+        },
+      });
+    }
+    
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unauthorized" },
@@ -82,7 +116,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "payroll", ["admin"]);
     const body = await request.json().catch(() => null);
 
     if (
@@ -212,7 +246,7 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "payroll", ["admin"]);
     const body = await request.json().catch(() => null);
 
     if (!body?.id) {
@@ -349,7 +383,7 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "payroll", ["admin"]);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 

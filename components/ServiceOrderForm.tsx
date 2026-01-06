@@ -13,7 +13,8 @@
 
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import React from "react";
 import toast from "react-hot-toast";
 
 import { serviceOrderSchema, ServiceOrderFormData, TECHNICIANS, CUSTOMER_TYPE_OPTIONS } from "@/lib/validation";
@@ -49,7 +50,7 @@ interface ServiceOrderFormProps {
   prefilledData?: WorkOrder;
 }
 
-export default function ServiceOrderForm({ onBack, businessUnit, prefilledData }: ServiceOrderFormProps) {
+const ServiceOrderForm = React.memo(function ServiceOrderForm({ onBack, businessUnit, prefilledData }: ServiceOrderFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewData, setPreviewData] = useState<ServiceOrderFormData | null>(null);
@@ -156,32 +157,40 @@ export default function ServiceOrderForm({ onBack, businessUnit, prefilledData }
     }
   }, [error]);
 
-  const customerSuggestions =
-    customers.length > 0 ? customers.map((c) => c.name) : [...CUSTOMERS];
+  const customerSuggestions = useMemo(
+    () => (customers.length > 0 ? customers.map((c) => c.name) : [...CUSTOMERS]),
+    [customers]
+  );
 
-  const serviceTypeOptions =
-    serviceTypes.length > 0
-      ? serviceTypes.map((s) => ({ value: s.name, label: s.name }))
-      : CUSTOMER_TYPE_OPTIONS.map((c) => ({ value: c.value, label: c.label }));
+  const serviceTypeOptions = useMemo(
+    () =>
+      serviceTypes.length > 0
+        ? serviceTypes.map((s) => ({ value: s.name, label: s.name }))
+        : CUSTOMER_TYPE_OPTIONS.map((c) => ({ value: c.value, label: c.label })),
+    [serviceTypes]
+  );
 
-  const employeeOptions =
-    employees.length > 0
-      ? employees.map((e) => ({
-          value: e.name,
-          label: e.role ? `${e.name} (${e.role})` : e.name,
-        }))
-      : TECHNICIANS.map((t) => ({ value: t, label: t }));
+  const employeeOptions = useMemo(
+    () =>
+      employees.length > 0
+        ? employees.map((e) => ({
+            value: e.name,
+            label: e.role ? `${e.name} (${e.role})` : e.name,
+          }))
+        : TECHNICIANS.map((t) => ({ value: t, label: t })),
+    [employees]
+  );
 
-  const onSubmit = async (data: ServiceOrderFormData) => {
+  const onSubmit = useCallback(async (data: ServiceOrderFormData) => {
     // Store form data and show preview modal
     setPreviewData(data);
     setShowPreview(true);
-  };
+  }, []);
 
-  const handleClosePreview = () => {
+  const handleClosePreview = useCallback(() => {
     setShowPreview(false);
     setPreviewData(null);
-  };
+  }, []);
 
   return (
     <>
@@ -514,4 +523,8 @@ export default function ServiceOrderForm({ onBack, businessUnit, prefilledData }
       )}
     </>
   );
-}
+});
+
+ServiceOrderForm.displayName = "ServiceOrderForm";
+
+export default ServiceOrderForm;

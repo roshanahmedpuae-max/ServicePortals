@@ -126,6 +126,14 @@ export default function CustomerPortalPage({ params }: PageProps) {
     sentAt: string;
     readAt?: string;
   }>>([]);
+  const [advertisements, setAdvertisements] = useState<Array<{
+    id: string;
+    type: "image" | "message";
+    imageUrl?: string;
+    message?: string;
+    createdAt: string;
+    expiresAt: string;
+  }>>([]);
 
   useEffect(() => {
     if (!businessUnit) return;
@@ -180,6 +188,21 @@ export default function CustomerPortalPage({ params }: PageProps) {
           setNotifications([]);
           setNotificationCount(0);
         }
+
+        // Load advertisements
+        try {
+          const adData = await fetchJson<Array<{
+            id: string;
+            type: "image" | "message";
+            imageUrl?: string;
+            message?: string;
+            createdAt: string;
+            expiresAt: string;
+          }>>("/api/customer/advertisements");
+          setAdvertisements(Array.isArray(adData) ? adData : []);
+        } catch {
+          setAdvertisements([]);
+        }
       } catch (error) {
         toast.error((error as Error).message);
       } finally {
@@ -190,7 +213,7 @@ export default function CustomerPortalPage({ params }: PageProps) {
     loadTickets();
   }, [session, filterStatus]);
 
-  // Refresh notifications periodically
+  // Refresh notifications and advertisements periodically
   useEffect(() => {
     if (!session) return;
 
@@ -212,8 +235,28 @@ export default function CustomerPortalPage({ params }: PageProps) {
       }
     };
 
+    const refreshAdvertisements = async () => {
+      try {
+        const adData = await fetchJson<Array<{
+          id: string;
+          type: "image" | "message";
+          imageUrl?: string;
+          message?: string;
+          createdAt: string;
+          expiresAt: string;
+        }>>("/api/customer/advertisements");
+        setAdvertisements(Array.isArray(adData) ? adData : []);
+      } catch {
+        // Ignore errors
+      }
+    };
+
     refreshNotifications();
-    const interval = setInterval(refreshNotifications, 30000); // Refresh every 30 seconds
+    refreshAdvertisements();
+    const interval = setInterval(() => {
+      refreshNotifications();
+      refreshAdvertisements();
+    }, 30000); // Refresh every 30 seconds
 
     return () => clearInterval(interval);
   }, [session]);
@@ -1000,6 +1043,37 @@ export default function CustomerPortalPage({ params }: PageProps) {
                       Category: {activeTicket.category}
                     </span>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Advertisements Section */}
+            {advertisements.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-sm sm:text-base font-semibold text-white">Advertisements</h2>
+                <div className="space-y-3">
+                  {advertisements.map((ad) => (
+                    <div
+                      key={ad.id}
+                      className="rounded-2xl bg-slate-900/80 border border-slate-700 p-3 sm:p-4"
+                    >
+                      {ad.type === "image" && ad.imageUrl ? (
+                        <div className="space-y-2">
+                          <img
+                            src={ad.imageUrl}
+                            alt="Advertisement"
+                            className="w-full rounded-lg object-contain max-h-96"
+                          />
+                        </div>
+                      ) : ad.type === "message" && ad.message ? (
+                        <div className="space-y-2">
+                          <p className="text-xs sm:text-sm text-slate-200 whitespace-pre-line">
+                            {ad.message}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

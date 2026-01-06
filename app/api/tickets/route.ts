@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFeatureAccess } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import TicketModel from "@/lib/models/Ticket";
 import TicketCommentModel from "@/lib/models/TicketComment";
@@ -10,7 +10,23 @@ import { uploadImage, uploadFile } from "@/lib/cloudinary";
 
 export async function GET(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin", "employee", "customer"]);
+    // Check auth first to get user role
+    const { verifyToken, getAuthFromHeaderOrCookie } = await import("@/lib/auth");
+    const token = getAuthFromHeaderOrCookie(request);
+    const payload = verifyToken(token);
+    
+    let user;
+    if (payload?.role === "customer") {
+      // Customers can always access their own tickets
+      user = requireAuth(request, ["admin", "employee", "customer"]);
+    } else if (payload?.role === "admin") {
+      // Admins accessing from admin portal need feature access
+      user = requireAuth(request, ["admin", "employee"]);
+      await requireFeatureAccess(request, "tickets", ["admin"]);
+    } else {
+      // Employees can access tickets from employee portal without feature access
+      user = requireAuth(request, ["admin", "employee"]);
+    }
     await connectToDatabase();
 
     const { searchParams } = new URL(request.url);
@@ -33,11 +49,46 @@ export async function GET(request: NextRequest) {
       query.status = status;
     }
 
-    const tickets = await TicketModel.find(query).sort({ updatedAt: -1 });
-    return NextResponse.json(tickets.map((t) => t.toJSON()));
+    // Add pagination support (backward compatible)
+    const usePagination = searchParams.has("limit") || searchParams.has("page") || searchParams.has("skip");
+    const limit = usePagination ? parseInt(searchParams.get("limit") || "100", 10) : 10000;
+    const skip = parseInt(searchParams.get("skip") || "0", 10);
+    const page = parseInt(searchParams.get("page") || "1", 10);
+    const actualSkip = skip || (page - 1) * limit;
+    
+    const tickets = await TicketModel.find(query)
+      .sort({ updatedAt: -1 })
+      .skip(usePagination ? actualSkip : 0)
+      .limit(usePagination ? limit : 10000)
+      .lean();
+    
+    const result = tickets.map((t: any) => ({
+      id: t._id.toString(),
+      ...t,
+      _id: t._id.toString(),
+    }));
+    
+    // Return paginated format if pagination params provided, otherwise return array for backward compatibility
+    if (usePagination) {
+      const total = await TicketModel.countDocuments(query);
+      return NextResponse.json({
+        data: result,
+        pagination: {
+          total,
+          page: page || Math.floor(actualSkip / limit) + 1,
+          limit,
+          skip: actualSkip,
+          hasMore: actualSkip + limit < total,
+        },
+      });
+    }
+    
+    return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal Server Error";
-    const status = message === "Unauthorized" ? 401 : 500;
+    let status = 500;
+    if (message === "Unauthorized") status = 401;
+    else if (message.includes("Forbidden") || (error as any)?.statusCode === 403) status = 403;
     console.error("GET /api/tickets failed", error);
     return NextResponse.json({ error: message }, { status });
   }
@@ -130,11 +181,25 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin", "employee"]);
     const body = await request.json().catch(() => null);
 
     if (!body?.id) {
       return NextResponse.json({ error: "Ticket id is required" }, { status: 400 });
+    }
+
+    // Check auth first to determine if feature access is needed
+    const { verifyToken, getAuthFromHeaderOrCookie } = await import("@/lib/auth");
+    const token = getAuthFromHeaderOrCookie(request);
+    const payload = verifyToken(token);
+    
+    let user;
+    if (payload?.role === "admin") {
+      // Admins accessing from admin portal need feature access
+      user = requireAuth(request, ["admin", "employee"]);
+      await requireFeatureAccess(request, "tickets", ["admin"]);
+    } else {
+      // Employees can update their assigned tickets from employee portal without feature access
+      user = requireAuth(request, ["admin", "employee"]);
     }
 
     await connectToDatabase();
@@ -199,7 +264,7 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "tickets", ["admin"]);
     const body = await request.json().catch(() => null);
 
     if (!body?.id) {

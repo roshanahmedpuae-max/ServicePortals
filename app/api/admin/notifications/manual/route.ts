@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFeatureAccess } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import EmployeeNotificationModel from "@/lib/models/EmployeeNotification";
 import CustomerNotificationModel from "@/lib/models/CustomerNotification";
@@ -8,7 +8,7 @@ import CustomerUserModel from "@/lib/models/CustomerUser";
 
 export async function POST(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "notifications", ["admin"]);
     const body = await request.json().catch(() => null);
 
     if (!body?.title || !body?.message) {

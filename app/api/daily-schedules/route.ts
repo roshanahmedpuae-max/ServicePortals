@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFeatureAccess } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import DailyScheduleModel from "@/lib/models/DailySchedule";
 import EmployeeModel from "@/lib/models/Employee";
@@ -14,7 +14,15 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\
 
 export async function GET(request: NextRequest) {
   try {
+    // Employees can access daily schedules from employee portal without feature access
+    // Admins accessing from admin portal need feature access
     const user = requireAuth(request, ["admin", "employee"]);
+    
+    // Admins need feature access for admin portal, employees don't need it for employee portal
+    if (user.role === "admin") {
+      await requireFeatureAccess(request, "schedule_works", ["admin"]);
+    }
+    
     if (user.businessUnit !== "PrintersUAE") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -77,7 +85,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "schedule_works", ["admin"]);
     if (user.businessUnit !== "PrintersUAE") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -149,7 +157,7 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "schedule_works", ["admin"]);
     if (user.businessUnit !== "PrintersUAE") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -231,7 +239,7 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = requireAuth(request, ["admin"]);
+    const user = await requireFeatureAccess(request, "schedule_works", ["admin"]);
     if (user.businessUnit !== "PrintersUAE") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

@@ -1,30 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/db";
-import EmployeeModel, { verifyEmployeeCredentials } from "@/lib/models/Employee";
+import EmployeeModel, { verifyEmployeeByPassword } from "@/lib/models/Employee";
 import { issueEmployeeToken, setAuthCookie } from "@/lib/auth";
 import { BusinessUnit } from "@/lib/types";
 import { Employee } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  if (!body?.name || !body?.password) {
+  // Simplified login: only businessUnit and password required (no name)
+  if (!body?.businessUnit || !body?.password) {
     return NextResponse.json(
-      { error: "Name and password are required" },
+      { error: "Business unit and password are required" },
       { status: 400 }
     );
   }
-  const bu = body.businessUnit as BusinessUnit | undefined;
+  const businessUnit = body.businessUnit as BusinessUnit;
   await connectToDatabase();
 
-  const employee =
-    (bu && (await verifyEmployeeCredentials(body.name, body.password, bu))) ||
-    (await verifyEmployeeCredentials(body.name, body.password));
+  // Find employee by password hash within the specified business unit
+  const employee = await verifyEmployeeByPassword(body.password, businessUnit);
 
   if (!employee) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
   const employeeObj = employee.toObject();
+  const featureAccess = (employeeObj as any).featureAccess || [];
+  
+  // Check if employee has any feature access - if not, they cannot login to admin portal
+  if (!Array.isArray(featureAccess) || featureAccess.length === 0) {
+    return NextResponse.json(
+      { error: "Access denied: No feature access granted. Please contact administrator." },
+      { status: 403 }
+    );
+  }
+  
   const employeePayload: Employee = {
     id: (employeeObj as { id?: string; _id: string }).id ?? employeeObj._id,
     name: employeeObj.name,
@@ -32,6 +42,7 @@ export async function POST(request: NextRequest) {
     businessUnit: employeeObj.businessUnit,
     role: employeeObj.role,
     status: employeeObj.status,
+    featureAccess: featureAccess,
   };
 
   const token = issueEmployeeToken(employeePayload);
@@ -43,6 +54,7 @@ export async function POST(request: NextRequest) {
       businessUnit: employeePayload.businessUnit,
       role: employeePayload.role,
       status: employeePayload.status,
+      featureAccess: employeePayload.featureAccess || [],
     },
   });
   setAuthCookie(response, token);

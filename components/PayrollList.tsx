@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { Payroll, PayrollStatus } from "@/lib/types";
 import Button from "./ui/Button";
 import Select from "./ui/Select";
@@ -17,7 +17,7 @@ interface PayrollListProps {
   showEmployeeColumn?: boolean;
 }
 
-export default function PayrollList({
+const PayrollList = React.memo(function PayrollList({
   payrolls,
   employees = [],
   onMarkCompleted,
@@ -225,4 +225,8 @@ export default function PayrollList({
       )}
     </div>
   );
-}
+});
+
+PayrollList.displayName = "PayrollList";
+
+export default PayrollList;

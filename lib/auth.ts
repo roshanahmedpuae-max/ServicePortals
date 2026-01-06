@@ -14,6 +14,7 @@ type TokenPayload = {
   businessUnit: BusinessUnit;
   name?: string;
   email?: string;
+  featureAccess?: string[]; // Array of feature access permissions
   issuedAt: number;
 };
 
@@ -78,6 +79,7 @@ export const issueEmployeeToken = (employee: Employee) =>
     role: "employee",
     businessUnit: employee.businessUnit,
     name: employee.name,
+    featureAccess: employee.featureAccess || [],
     issuedAt: Date.now(),
   });
 
@@ -119,5 +121,58 @@ export const getAuthFromHeaderOrCookie = (request: NextRequest) => {
   const bearer = header?.startsWith("Bearer ") ? header.slice(7) : null;
   const cookieToken = request.cookies.get(COOKIE_NAME)?.value;
   return bearer || cookieToken;
+};
+
+export const hasFeatureAccess = (payload: TokenPayload, feature: string): boolean => {
+  // Admins always have full access
+  if (payload.role === "admin") {
+    return true;
+  }
+  // Employees need explicit feature access
+  return payload.featureAccess?.includes(feature) ?? false;
+};
+
+export const requireFeatureAccess = async (
+  request: NextRequest,
+  feature: string,
+  allowedRoles: Role[] = ["admin", "employee"]
+): Promise<TokenPayload> => {
+  const payload = requireAuth(request, allowedRoles);
+  // Admins always have full access - bypass feature check
+  if (payload.role === "admin") {
+    return payload;
+  }
+  
+  // For employees, always fetch latest feature access from database to ensure we have current data
+  if (payload.role === "employee") {
+    try {
+      const { connectToDatabase } = await import("@/lib/db");
+      const EmployeeModel = (await import("@/lib/models/Employee")).default;
+      await connectToDatabase();
+      const employee = await EmployeeModel.findById(payload.id);
+      if (employee) {
+        const employeeObj = employee.toObject();
+        payload.featureAccess = (employeeObj as any).featureAccess || [];
+      } else {
+        // Employee not found, set empty array
+        payload.featureAccess = [];
+      }
+    } catch (error) {
+      // If we can't fetch, use token's featureAccess or empty array
+      payload.featureAccess = payload.featureAccess || [];
+    }
+  }
+  
+  // Check feature access
+  if (!hasFeatureAccess(payload, feature)) {
+    // Log for debugging (remove in production if needed)
+    if (payload.role === "employee") {
+      console.log(`Employee ${payload.id} attempted to access feature "${feature}" but has access to:`, payload.featureAccess);
+    }
+    const error = new Error(`Forbidden: Feature access required for "${feature}"`);
+    (error as any).statusCode = 403;
+    throw error;
+  }
+  return payload;
 };
 

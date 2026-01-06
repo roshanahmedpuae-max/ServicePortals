@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo, Fragment, FormEvent, useRef } from "react";
-import { RiMenu5Fill } from "react-icons/ri";
+import { useEffect, useState, useMemo, Fragment, FormEvent, useRef, ChangeEvent, useCallback } from "react";
+import { RiMenu5Fill, RiAdvertisementFill } from "react-icons/ri";
 import { BiSolidHomeSmile } from "react-icons/bi";
 import { FaSignOutAlt, FaUserShield, FaEye, FaRegEye } from "react-icons/fa";
 import { MdModeEdit } from "react-icons/md";
@@ -44,8 +44,11 @@ const formatLeaveType = (type: LeaveType): string => {
 };
 
 type AdminAuth = {
-  email: string;
+  email?: string;
+  name?: string;
   businessUnit: BusinessUnit;
+  role: "admin" | "employee";
+  featureAccess?: string[];
 };
 
 type Customer = {
@@ -135,6 +138,11 @@ export default function AdminDashboard() {
   const [editPayrollNotes, setEditPayrollNotes] = useState("");
   const [submittingPayrollEdit, setSubmittingPayrollEdit] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showAdvertisementModal, setShowAdvertisementModal] = useState(false);
+  const [advertisementType, setAdvertisementType] = useState<"image" | "message">("message");
+  const [advertisementImage, setAdvertisementImage] = useState<string>("");
+  const [advertisementMessage, setAdvertisementMessage] = useState<string>("");
+  const [submittingAdvertisement, setSubmittingAdvertisement] = useState(false);
   const [notificationRecipientType, setNotificationRecipientType] = useState<"employee" | "customer" | "both">("employee");
   const [notificationSelectedEmployeeIds, setNotificationSelectedEmployeeIds] = useState<string[]>([]);
   const [notificationSelectedCustomerIds, setNotificationSelectedCustomerIds] = useState<string[]>([]);
@@ -157,6 +165,7 @@ export default function AdminDashboard() {
   const [editRole, setEditRole] = useState("");
   const [editStatus, setEditStatus] = useState<EmployeeStatus>("Available");
   const [editPassword, setEditPassword] = useState("");
+  const [editFeatureAccess, setEditFeatureAccess] = useState<string[]>([]);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [showCreateEmployeePassword, setShowCreateEmployeePassword] = useState(false);
   const [showEditEmployeePassword, setShowEditEmployeePassword] = useState(false);
@@ -219,10 +228,22 @@ export default function AdminDashboard() {
     | null
   >(null);
 
-  const availableCount = employees.filter((e) => e.status === "Available").length;
-  const assignedCount = workOrders.filter((w) => w.status === "Assigned").length;
-  const openTicketCount = tickets.filter((t) => t.status !== "Closed").length;
-  const submittedCount = workOrders.filter((w) => w.status === "Submitted").length;
+  const availableCount = useMemo(() => 
+    employees.filter((e) => e.status === "Available").length,
+    [employees]
+  );
+  const assignedCount = useMemo(() => 
+    workOrders.filter((w) => w.status === "Assigned").length,
+    [workOrders]
+  );
+  const openTicketCount = useMemo(() => 
+    tickets.filter((t) => t.status !== "Closed").length,
+    [tickets]
+  );
+  const submittedCount = useMemo(() => 
+    workOrders.filter((w) => w.status === "Submitted").length,
+    [workOrders]
+  );
   const [activeDashboardPanel, setActiveDashboardPanel] = useState<
     | "customers"
     | "serviceTypes"
@@ -311,9 +332,18 @@ export default function AdminDashboard() {
   const [approvalDocuments, setApprovalDocuments] = useState<Array<{ fileName: string; fileData: string }>>([]);
   const [approvalMessage, setApprovalMessage] = useState("");
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
-  const assetNotificationCount = assetNotifications.filter((n) => n.type !== "leave").length;
-  const leaveNotificationCount = assetNotifications.filter((n) => n.type === "leave").length;
-  const totalNotificationCount = assetNotifications.length;
+  const assetNotificationCount = useMemo(() => 
+    assetNotifications.filter((n) => n.type !== "leave").length,
+    [assetNotifications]
+  );
+  const leaveNotificationCount = useMemo(() => 
+    assetNotifications.filter((n) => n.type === "leave").length,
+    [assetNotifications]
+  );
+  const totalNotificationCount = useMemo(() => 
+    assetNotifications.length,
+    [assetNotifications]
+  );
   const pendingLeaveCount = useMemo(() => {
     return Object.values(employeeLeaves)
       .flat()
@@ -339,12 +369,61 @@ export default function AdminDashboard() {
     return counts;
   }, [assetNotifications]);
   const tabs: { id: TabId; label: string }[] = useMemo(() => {
-    const base: { id: TabId; label: string }[] = [...BASE_TABS];
-    if (adminAuth?.businessUnit === "PrintersUAE") {
+    if (!adminAuth) return [];
+    
+    const base: { id: TabId; label: string }[] = [];
+    const featureAccess = adminAuth.featureAccess || [];
+    const isAdmin = adminAuth.role === "admin";
+    
+    // Dashboard: always visible if logged in
+    base.push({ id: "dashboard", label: "Dashboard" });
+    
+    // Assets: requires "assets" access
+    if (isAdmin || featureAccess.includes("assets")) {
+      base.push({ id: "assets", label: "Assets" });
+    }
+    
+    // Setup: requires "setup" access (admin only)
+    if (isAdmin || featureAccess.includes("setup")) {
+      base.push({ id: "setup", label: "Setup" });
+    }
+    
+    // Payroll: requires "payroll" access
+    if (isAdmin || featureAccess.includes("payroll")) {
+      base.push({ id: "payroll", label: "Payroll" });
+    }
+    
+    // Schedule Works: requires "schedule_works" access
+    if (isAdmin || featureAccess.includes("schedule_works")) {
+      base.push({ id: "assign-work", label: "Schedule Works" });
+    }
+    
+    // Tickets: requires "tickets" access
+    if (isAdmin || featureAccess.includes("tickets")) {
+      base.push({ id: "tickets", label: "Tickets" });
+    }
+    
+    // Daily Schedule: PrintersUAE only and requires "schedule_works" access
+    if (adminAuth.businessUnit === "PrintersUAE" && (isAdmin || featureAccess.includes("schedule_works"))) {
       base.push({ id: "daily-schedule", label: "Daily Work Schedules" });
     }
+    
     return base;
-  }, [adminAuth?.businessUnit]);
+  }, [adminAuth]);
+
+  // Reset activeTab to a valid tab if current tab is not accessible
+  useEffect(() => {
+    if (!adminAuth || tabs.length === 0) return;
+    
+    // Check if current activeTab is in the available tabs
+    const isActiveTabValid = tabs.some(tab => tab.id === activeTab);
+    
+    // If activeTab is not valid, reset to dashboard (first tab, always available)
+    if (!isActiveTabValid) {
+      setActiveTab("dashboard");
+    }
+  }, [adminAuth, tabs, activeTab]);
+
   const schedulesByDate = useMemo(() => {
     const grouped: Record<string, DailySchedule[]> = {};
     dailySchedules.forEach((s) => {
@@ -359,7 +438,7 @@ export default function AdminDashboard() {
     return grouped;
   }, [dailySchedules]);
 
-  const authedFetch = async (url: string, init?: RequestInit) => {
+  const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
     const res = await fetch(url, {
       ...init,
       headers: {
@@ -370,12 +449,20 @@ export default function AdminDashboard() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || "Request failed");
+      const errorMessage = body.error || "Request failed";
+      // For 403 Forbidden errors (feature access denied), create a more specific error
+      if (res.status === 403) {
+        const error = new Error(errorMessage);
+        (error as any).status = 403;
+        (error as any).isForbidden = true;
+        throw error;
+      }
+      throw new Error(errorMessage);
     }
     return res.json();
-  };
+  }, []);
 
-  const loadAdvanceSalaryRequests = async () => {
+  const loadAdvanceSalaryRequests = useCallback(async () => {
     try {
       setLoadingAdvances(true);
       const advances = await authedFetch("/api/admin/advance-salary");
@@ -385,7 +472,7 @@ export default function AdminDashboard() {
     } finally {
       setLoadingAdvances(false);
     }
-  };
+  }, [authedFetch]);
 
   useEffect(() => {
     if (activeTab === "payroll") {
@@ -396,17 +483,31 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // Restore existing admin session from cookie on first load
+  // Restore existing admin/employee session from cookie on first load
   useEffect(() => {
     const checkSession = async () => {
       try {
         const res = await fetch("/api/auth/session", { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
-        if (data?.user?.role === "admin") {
+        if (data?.user && (data.user.role === "admin" || data.user.role === "employee")) {
+          const featureAccess = data.user.featureAccess || [];
+          
+          // For employees, check if they have any feature access - if not, don't restore session
+          if (data.user.role === "employee") {
+            if (!Array.isArray(featureAccess) || featureAccess.length === 0) {
+              // Employee has no feature access - clear session
+              await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+              return;
+            }
+          }
+          
           setAdminAuth({
-            email: data.user.email ?? "Admin",
+            email: data.user.email,
+            name: data.user.name,
             businessUnit: data.user.businessUnit,
+            role: data.user.role,
+            featureAccess: featureAccess,
           });
         }
       } catch {
@@ -420,59 +521,96 @@ export default function AdminDashboard() {
     if (!adminAuth) return;
     setLoading(true);
     try {
-      const [c, s, e, w, p] = await Promise.all([
-        authedFetch("/api/customers"),
-        authedFetch("/api/service-types"),
-        authedFetch("/api/employees"),
-        authedFetch("/api/work-orders"),
-        authedFetch("/api/payroll"),
+      const isAdmin = adminAuth.role === "admin";
+      
+      // Only call admin-only routes if user is admin, otherwise return empty arrays
+      const [c, s, e, w, p] = await Promise.allSettled([
+        isAdmin ? authedFetch("/api/customers").catch(() => []) : Promise.resolve([]),
+        isAdmin ? authedFetch("/api/service-types").catch(() => []) : Promise.resolve([]),
+        // Employees can access these if they have the right feature access
+        authedFetch("/api/employees").catch(() => []),
+        authedFetch("/api/work-orders").catch(() => []),
+        authedFetch("/api/payroll").catch(() => []),
       ]);
-      setCustomers(c);
-      setServiceTypes(s);
-      setEmployees(e);
-      setWorkOrders(w);
-      setPayrolls(Array.isArray(p) ? p : []);
+      setCustomers(c.status === "fulfilled" ? c.value : []);
+      setServiceTypes(s.status === "fulfilled" ? s.value : []);
+      setEmployees(e.status === "fulfilled" ? e.value : []);
+      setWorkOrders(w.status === "fulfilled" ? w.value : []);
+      setPayrolls(p.status === "fulfilled" && Array.isArray(p.value) ? p.value : []);
       try {
         const t = await authedFetch("/api/tickets");
         setTickets(Array.isArray(t) ? t : []);
-      } catch {
+      } catch (error) {
+        // Silently handle 401/403 errors (unauthorized/forbidden) - expected for employees without access
+        if ((error as any)?.status !== 401 && (error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+          console.error("Failed to load tickets:", error);
+        }
         setTickets([]);
       }
       try {
         const dates = await authedFetch("/api/assets/dates?windowDays=90");
         setAssetDates(Array.isArray(dates) ? dates : []);
-      } catch {
+      } catch (error) {
+        // Silently handle 403 errors (feature access denied) - expected for employees without access
+        if ((error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+          console.error("Failed to load asset dates:", error);
+        }
         setAssetDates([]);
       }
       try {
         const summary = await authedFetch("/api/assets/summary");
         setAssetsSummary(summary);
-      } catch {
+      } catch (error) {
+        // Silently handle 403 errors (feature access denied) - expected for employees without access
+        if ((error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+          console.error("Failed to load assets summary:", error);
+        }
         setAssetsSummary(null);
       }
       try {
         const notifications = await authedFetch("/api/notifications?limit=50");
         setAssetNotifications(Array.isArray(notifications) ? notifications : []);
-      } catch {
+      } catch (error) {
+        // Silently handle 403 errors (feature access denied) - expected for employees without access
+        if ((error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+          console.error("Failed to load notifications:", error);
+        }
         setAssetNotifications([]);
       }
-      try {
-        const customerUsersData = await authedFetch("/api/admin/customer-users");
-        setCustomerUsers(Array.isArray(customerUsersData) ? customerUsersData : []);
-      } catch {
+      // Only load customer users if admin (admin-only route)
+      if (isAdmin) {
+        try {
+          const customerUsersData = await authedFetch("/api/admin/customer-users");
+          setCustomerUsers(Array.isArray(customerUsersData) ? customerUsersData : []);
+        } catch (error) {
+          // Silently handle 401/403 errors (unauthorized/forbidden)
+          if ((error as any)?.status !== 401 && (error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+            console.error("Failed to load customer users:", error);
+          }
+          setCustomerUsers([]);
+        }
+      } else {
         setCustomerUsers([]);
       }
       if (adminAuth?.businessUnit === "PrintersUAE") {
         try {
           const rentalMachinesData = await authedFetch("/api/assets/rental-machines");
           setRentalMachines(Array.isArray(rentalMachinesData) ? rentalMachinesData : []);
-        } catch {
+        } catch (error) {
+          // Silently handle 403 errors (feature access denied) - expected for employees without access
+          if ((error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+            console.error("Failed to load rental machines:", error);
+          }
           setRentalMachines([]);
         }
         try {
           const copierModelsData = await authedFetch("/api/assets/copier-models");
           setCopierModels(Array.isArray(copierModelsData) ? copierModelsData : []);
-        } catch {
+        } catch (error) {
+          // Silently handle 403 errors (feature access denied) - expected for employees without access
+          if ((error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+            console.error("Failed to load copier models:", error);
+          }
           setCopierModels([]);
         }
       } else {
@@ -480,7 +618,10 @@ export default function AdminDashboard() {
         setCopierModels([]);
       }
     } catch (error) {
-      toast.error((error as Error).message);
+      // Silently handle 401/403 errors (unauthorized/forbidden) - expected for employees without access
+      if ((error as any)?.status !== 401 && (error as any)?.status !== 403 && (error as any)?.isForbidden !== true) {
+        toast.error((error as Error).message);
+      }
     } finally {
       setLoading(false);
     }
@@ -583,19 +724,65 @@ export default function AdminDashboard() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/admin", {
+      // Try admin login first
+      const adminRes = await fetch("/api/auth/admin", {
         method: "POST",
         body: JSON.stringify({ password, businessUnit: selectedBu }),
         credentials: "include",
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Login failed");
+      
+      if (adminRes.ok) {
+        const adminData = await adminRes.json();
+        setAdminAuth({
+          email: adminData.admin.email,
+          businessUnit: adminData.admin.businessUnit,
+          role: "admin",
+          featureAccess: [], // Admins have full access
+        });
+        setShowLoginModal(false);
+        toast.success("Admin signed in");
+        return;
       }
-      const data = await res.json();
-      setAdminAuth(data.admin);
-      setShowLoginModal(false);
-      toast.success("Admin signed in");
+
+      // If admin login fails, try employee login
+      const employeeRes = await fetch("/api/auth/employee", {
+        method: "POST",
+        body: JSON.stringify({ password, businessUnit: selectedBu }),
+        credentials: "include",
+      });
+
+      if (employeeRes.ok) {
+        const employeeData = await employeeRes.json();
+        const featureAccess = employeeData.employee.featureAccess || [];
+        
+        // Check if employee has any feature access - if not, prevent login
+        if (!Array.isArray(featureAccess) || featureAccess.length === 0) {
+          toast.error("Access denied: No feature access granted. Please contact administrator.");
+          return;
+        }
+        
+        setAdminAuth({
+          name: employeeData.employee.name,
+          businessUnit: employeeData.employee.businessUnit,
+          role: "employee",
+          featureAccess: featureAccess,
+        });
+        setShowLoginModal(false);
+        toast.success("Employee signed in");
+        return;
+      } else {
+        // Employee login failed - check if it's a feature access error
+        const employeeBody = await employeeRes.json().catch(() => ({}));
+        if (employeeRes.status === 403 && employeeBody.error?.includes("feature access")) {
+          toast.error(employeeBody.error || "Access denied: No feature access granted. Please contact administrator.");
+          return;
+        }
+      }
+
+      // Both logins failed
+      const adminBody = await adminRes.json().catch(() => ({}));
+      const employeeBody = await employeeRes.json().catch(() => ({}));
+      throw new Error(adminBody.error || employeeBody.error || "Invalid credentials");
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -621,7 +808,7 @@ export default function AdminDashboard() {
     setScheduleTasksText("");
   };
 
-  const handleCreateCustomer = async (formData: FormData) => {
+  const handleCreateCustomer = useCallback(async (formData: FormData) => {
     try {
       const payload = {
         name: formData.get("name"),
@@ -635,9 +822,9 @@ export default function AdminDashboard() {
     } catch (error) {
       toast.error((error as Error).message);
     }
-  };
+  }, [authedFetch]);
 
-  const handleImportCustomers = async (file: File) => {
+  const handleImportCustomers = useCallback(async (file: File) => {
     setImportingCustomers(true);
     try {
       const data = await file.arrayBuffer();
@@ -665,9 +852,9 @@ export default function AdminDashboard() {
     } finally {
       setImportingCustomers(false);
     }
-  };
+  }, [authedFetch]);
 
-  const handleCreateServiceType = async (formData: FormData) => {
+  const handleCreateServiceType = useCallback(async (formData: FormData) => {
     try {
       const payload = {
         name: formData.get("name"),
@@ -681,14 +868,24 @@ export default function AdminDashboard() {
     } catch (error) {
       toast.error((error as Error).message);
     }
-  };
+  }, [authedFetch]);
 
   const handleCreateEmployee = async (formData: FormData) => {
     try {
+      // Collect feature access from checkboxes
+      const featureAccess: string[] = [];
+      const features = ["payroll", "assets", "tickets", "schedule_works", "dashboard", "setup", "notifications", "advertisements"];
+      features.forEach((feature) => {
+        if (formData.get(`feature_${feature}`) === "on") {
+          featureAccess.push(feature);
+        }
+      });
+      
       const payload = {
         name: formData.get("name"),
         password: formData.get("password"),
         role: formData.get("role"),
+        featureAccess,
       };
       const created = await authedFetch("/api/employees", {
         method: "POST",
@@ -1052,6 +1249,7 @@ export default function AdminDashboard() {
     setEditRole(emp.role);
     setEditStatus(emp.status);
     setEditPassword("");
+    setEditFeatureAccess(emp.featureAccess || []);
   };
 
   const handleUpdateEmployee = async () => {
@@ -1062,6 +1260,7 @@ export default function AdminDashboard() {
         name: editName,
         role: editRole,
         status: editStatus,
+        featureAccess: editFeatureAccess,
       };
       if (editPassword) payload.password = editPassword;
       const updated = await authedFetch("/api/employees", {
@@ -1072,6 +1271,7 @@ export default function AdminDashboard() {
       toast.success("Employee updated");
       setEditingEmployeeId(null);
       setEditPassword("");
+      setEditFeatureAccess([]);
     } catch (error) {
       toast.error((error as Error).message);
     }
@@ -1245,14 +1445,26 @@ export default function AdminDashboard() {
               </p>
             </div>
             <div className="flex gap-2 sm:gap-3 items-center">
-              <button
-                type="button"
-                onClick={() => setShowNotificationModal(true)}
-                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 transition"
-                title="Send notification"
-              >
-                <AiFillNotification className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
+              {(adminAuth.role === "admin" || adminAuth.featureAccess?.includes("advertisements")) && (
+                <button
+                  type="button"
+                  onClick={() => setShowAdvertisementModal(true)}
+                  className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 transition"
+                  title="Send advertisement"
+                >
+                  <RiAdvertisementFill className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              )}
+              {(adminAuth.role === "admin" || adminAuth.featureAccess?.includes("notifications")) && (
+                <button
+                  type="button"
+                  onClick={() => setShowNotificationModal(true)}
+                  className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/10 border border-white/20 text-white flex items-center justify-center hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 transition"
+                  title="Send notification"
+                >
+                  <AiFillNotification className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              )}
               <div className="relative">
                 <button
                   ref={notificationButtonRef}
@@ -1766,6 +1978,39 @@ export default function AdminDashboard() {
                                     </button>
                                   </div>
                                 </div>
+                                <div className="md:col-span-2 space-y-2 pt-2 border-t border-slate-200">
+                                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                                    Feature Access
+                                  </p>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                      { key: "payroll", label: "Payroll" },
+                                      { key: "assets", label: "Assets" },
+                                      { key: "tickets", label: "Tickets" },
+                                      { key: "schedule_works", label: "Schedule Works" },
+                                      { key: "dashboard", label: "Dashboard" },
+                                      { key: "setup", label: "Setup" },
+                                      { key: "notifications", label: "Notifications" },
+                                      { key: "advertisements", label: "Advertisements" },
+                                    ].map((feature) => (
+                                      <label key={feature.key} className="flex items-center gap-2 text-xs">
+                                        <input
+                                          type="checkbox"
+                                          checked={editFeatureAccess.includes(feature.key)}
+                                          onChange={(e) => {
+                                            if (e.target.checked) {
+                                              setEditFeatureAccess([...editFeatureAccess, feature.key]);
+                                            } else {
+                                              setEditFeatureAccess(editFeatureAccess.filter((f) => f !== feature.key));
+                                            }
+                                          }}
+                                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <span>{feature.label}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
                                 <div className="mt-3 flex justify-end gap-2">
                                   <button
                                     type="button"
@@ -1775,6 +2020,7 @@ export default function AdminDashboard() {
                                       setEditRole("");
                                       setEditStatus("Available");
                                       setEditPassword("");
+                                      setEditFeatureAccess([]);
                                     }}
                                     className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200"
                                   >
@@ -2338,14 +2584,88 @@ export default function AdminDashboard() {
                           className="w-full rounded-lg border border-slate-200 px-3 py-2"
                           required
                         />
+                        <div className="space-y-2 pt-2 border-t border-slate-200">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-slate-700">Feature Access</p>
+                            <p className="text-xs text-slate-500 italic">(Optional)</p>
+                          </div>
+                          <p className="text-xs text-slate-500 mb-2">
+                            Select features to grant access. Leave unchecked to create employee without admin portal access.
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_payroll"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Payroll</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_assets"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Assets</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_tickets"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Tickets</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_schedule_works"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Schedule Works</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_dashboard"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Dashboard</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_setup"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Setup</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_notifications"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Notifications</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                name="feature_advertisements"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Advertisements</span>
+                            </label>
+                          </div>
+                        </div>
                         <button className="w-full bg-indigo-600 text-white rounded-lg py-2 hover:bg-indigo-500">
                           Add employee
                         </button>
                       </form>
                     </Card>
 
-                    {false && (
-                      <Card title="Employees" accent="bg-amber-500">
+                    <Card title="Employees" accent="bg-amber-500">
                       <ul className="space-y-2">
                         {employees.map((e) => {
                           const isEditing = editingEmployeeId === e.id;
@@ -2428,6 +2748,37 @@ export default function AdminDashboard() {
                                       )}
                                     </button>
                                   </div>
+                                  <div className="md:col-span-2 space-y-2 pt-2 border-t border-slate-200">
+                                    <p className="text-sm font-semibold text-slate-700">Feature Access</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {[
+                                        { key: "payroll", label: "Payroll" },
+                                        { key: "assets", label: "Assets" },
+                                        { key: "tickets", label: "Tickets" },
+                                        { key: "schedule_works", label: "Schedule Works" },
+                                        { key: "dashboard", label: "Dashboard" },
+                                        { key: "setup", label: "Setup" },
+                                        { key: "notifications", label: "Notifications" },
+                                        { key: "advertisements", label: "Advertisements" },
+                                      ].map((feature) => (
+                                        <label key={feature.key} className="flex items-center gap-2 text-sm">
+                                          <input
+                                            type="checkbox"
+                                            checked={editFeatureAccess.includes(feature.key)}
+                                            onChange={(e) => {
+                                              if (e.target.checked) {
+                                                setEditFeatureAccess([...editFeatureAccess, feature.key]);
+                                              } else {
+                                                setEditFeatureAccess(editFeatureAccess.filter((f) => f !== feature.key));
+                                              }
+                                            }}
+                                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                          />
+                                          <span>{feature.label}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
                                   <div className="md:col-span-2 flex gap-2">
                                     <button
                                       onClick={handleUpdateEmployee}
@@ -2436,7 +2787,10 @@ export default function AdminDashboard() {
                                       Save
                                     </button>
                                     <button
-                                      onClick={() => setEditingEmployeeId(null)}
+                                      onClick={() => {
+                                        setEditingEmployeeId(null);
+                                        setEditFeatureAccess([]);
+                                      }}
                                       className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300"
                                     >
                                       Cancel
@@ -2451,8 +2805,7 @@ export default function AdminDashboard() {
                           <p className="text-sm text-slate-500">No employees yet.</p>
                         )}
                       </ul>
-                      </Card>
-                    )}
+                    </Card>
                   </div>
                 )}
 
@@ -3673,6 +4026,17 @@ export default function AdminDashboard() {
                   </span>
                   Home
                 </button>
+                {(adminAuth.role === "admin" || adminAuth.featureAccess?.includes("advertisements")) && (
+                  <button
+                    onClick={() => setShowAdvertisementModal(true)}
+                    className={`flex flex-col items-center gap-1 flex-1 text-xs font-medium ${theme.text}`}
+                  >
+                    <span className={`w-10 h-10 rounded-2xl grid place-items-center border ${theme.border} ${theme.bg}`}>
+                      <RiAdvertisementFill className={`w-5 h-5 ${theme.text}`} />
+                    </span>
+                    Advertisement
+                  </button>
+                )}
                 <div className="relative flex-1">
                   <button
                     onClick={() => setShowNotifications(!showNotifications)}
@@ -4277,6 +4641,233 @@ export default function AdminDashboard() {
                     disabled={submittingNotification}
                   >
                     {submittingNotification ? "Sending..." : "Send Notification"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Advertisement modal */}
+          {showAdvertisementModal && adminAuth && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8 bg-slate-900/70 backdrop-blur-sm"
+              onClick={() => {
+                setShowAdvertisementModal(false);
+                setAdvertisementType("message");
+                setAdvertisementImage("");
+                setAdvertisementMessage("");
+              }}
+            >
+              <div
+                className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                  <div className="flex items-center gap-2">
+                    <span className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center">
+                      <RiAdvertisementFill className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Send Advertisement</p>
+                      <p className="text-sm font-semibold text-slate-900">Create and send advertisement to all customers</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowAdvertisementModal(false);
+                      setAdvertisementType("message");
+                      setAdvertisementImage("");
+                      setAdvertisementMessage("");
+                    }}
+                    className="rounded-full bg-slate-100 text-slate-600 w-9 h-9 grid place-items-center hover:bg-slate-200"
+                    aria-label="Close advertisement modal"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-5 space-y-5">
+                  {/* Advertisement Type Selection */}
+                  <div className="space-y-3">
+                    <label className="text-sm font-semibold text-slate-700">Advertisement Type</label>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdvertisementType("image");
+                          setAdvertisementMessage("");
+                        }}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          advertisementType === "image"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        Image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdvertisementType("message");
+                          setAdvertisementImage("");
+                        }}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          advertisementType === "message"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        Message
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Image Upload */}
+                  {advertisementType === "image" && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Image <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+
+                          // Check file size (max 10MB)
+                          if (file.size > 10 * 1024 * 1024) {
+                            toast.error("Image is too large. Maximum size is 10MB.");
+                            e.target.value = "";
+                            return;
+                          }
+
+                          try {
+                            const dataUrl = await new Promise<string>((resolve, reject) => {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                if (typeof reader.result === "string") {
+                                  resolve(reader.result);
+                                } else {
+                                  reject(new Error("Failed to read file"));
+                                }
+                              };
+                              reader.onerror = reject;
+                              reader.readAsDataURL(file);
+                            });
+                            setAdvertisementImage(dataUrl);
+                          } catch (error) {
+                            toast.error("Failed to read image file");
+                            e.target.value = "";
+                          }
+                        }}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-500/20 file:text-indigo-700 hover:file:bg-indigo-500/30 file:cursor-pointer cursor-pointer"
+                      />
+                      {advertisementImage && (
+                        <div className="mt-2">
+                          <p className="text-xs text-slate-500 mb-2">Preview:</p>
+                          <img
+                            src={advertisementImage}
+                            alt="Advertisement preview"
+                            className="max-w-full max-h-64 rounded-lg border border-slate-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdvertisementImage("");
+                              const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+                              if (fileInput) fileInput.value = "";
+                            }}
+                            className="mt-2 text-xs text-rose-500 hover:text-rose-600"
+                          >
+                            Remove image
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Message Input */}
+                  {advertisementType === "message" && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Message <span className="text-rose-500">*</span>
+                      </label>
+                      <textarea
+                        value={advertisementMessage}
+                        onChange={(e) => setAdvertisementMessage(e.target.value)}
+                        placeholder="Enter advertisement message"
+                        rows={8}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                    <p className="text-xs text-indigo-700">
+                      <strong>Note:</strong> This advertisement will be sent to all customers in your business unit and will automatically expire after 48 hours.
+                    </p>
+                  </div>
+                </div>
+                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAdvertisementModal(false);
+                      setAdvertisementType("message");
+                      setAdvertisementImage("");
+                      setAdvertisementMessage("");
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+                    disabled={submittingAdvertisement}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (advertisementType === "image" && !advertisementImage) {
+                        toast.error("Please upload an image");
+                        return;
+                      }
+
+                      if (advertisementType === "message" && !advertisementMessage.trim()) {
+                        toast.error("Please enter a message");
+                        return;
+                      }
+
+                      setSubmittingAdvertisement(true);
+                      try {
+                        const payload: any = {
+                          type: advertisementType,
+                        };
+
+                        if (advertisementType === "image") {
+                          payload.imageUrl = advertisementImage;
+                        } else {
+                          payload.message = advertisementMessage.trim();
+                        }
+
+                        const response = await authedFetch("/api/admin/advertisements", {
+                          method: "POST",
+                          body: JSON.stringify(payload),
+                        });
+
+                        toast.success("Advertisement sent successfully to all customers");
+                        setShowAdvertisementModal(false);
+                        setAdvertisementType("message");
+                        setAdvertisementImage("");
+                        setAdvertisementMessage("");
+                      } catch (error) {
+                        toast.error((error as Error).message || "Failed to send advertisement");
+                      } finally {
+                        setSubmittingAdvertisement(false);
+                      }
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={submittingAdvertisement}
+                  >
+                    {submittingAdvertisement ? "Sending..." : "Send Advertisement"}
                   </button>
                 </div>
               </div>

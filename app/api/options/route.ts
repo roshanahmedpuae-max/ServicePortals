@@ -18,24 +18,29 @@ export async function GET(request: NextRequest) {
     await connectToDatabase();
 
     const [customers, serviceTypes, employees] = await Promise.all([
-      CustomerModel.find({ businessUnit: bu }),
-      ServiceTypeModel.find({ businessUnit: bu }),
-      EmployeeModel.find({ businessUnit: bu }),
+      CustomerModel.find({ businessUnit: bu }).lean(),
+      ServiceTypeModel.find({ businessUnit: bu }).lean(),
+      EmployeeModel.find({ businessUnit: bu }).lean(),
     ]);
 
     return NextResponse.json({
-      customers: customers.map((c) => c.toJSON()),
-      serviceTypes: serviceTypes.map((s) => s.toJSON()),
-      employees: employees.map((e) => {
-        const obj = e.toObject();
-        return {
-          id: (obj as { id?: string; _id: string }).id ?? obj._id,
-          name: obj.name,
-          role: obj.role,
-          status: obj.status,
-          businessUnit: obj.businessUnit,
-        };
-      }),
+      customers: customers.map((c: any) => ({
+        id: c._id.toString(),
+        name: c.name,
+        contact: c.contact,
+      })),
+      serviceTypes: serviceTypes.map((s: any) => ({
+        id: s._id.toString(),
+        name: s.name,
+        description: s.description,
+      })),
+      employees: employees.map((e: any) => ({
+        id: e._id.toString(),
+        name: e.name,
+        role: e.role,
+        status: e.status,
+        businessUnit: e.businessUnit,
+      })),
     });
   } catch (error) {
     console.error("GET /api/options failed:", error);

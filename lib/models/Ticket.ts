@@ -87,6 +87,12 @@ const TicketSchema = new Schema<TicketDocument>(
   }
 );
 
+// Compound indexes for efficient queries
+TicketSchema.index({ businessUnit: 1, status: 1 });
+TicketSchema.index({ businessUnit: 1, customerId: 1 });
+TicketSchema.index({ businessUnit: 1, assignedEmployeeId: 1 });
+TicketSchema.index({ businessUnit: 1, updatedAt: -1 });
+
 const TicketModel: Model<TicketDocument> =
   (mongoose.models.Ticket as Model<TicketDocument>) ||
   mongoose.model<TicketDocument>("Ticket", TicketSchema);

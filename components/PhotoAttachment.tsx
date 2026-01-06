@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import Button from "./ui/Button";
 
 interface PhotoAttachmentProps {
@@ -11,7 +11,7 @@ interface PhotoAttachmentProps {
   required?: boolean;
 }
 
-export default function PhotoAttachment({
+const PhotoAttachment = React.memo(function PhotoAttachment({
   label,
   value,
   onChange,
@@ -22,7 +22,7 @@ export default function PhotoAttachment({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       // Check file size (max 5MB)
@@ -45,19 +45,19 @@ export default function PhotoAttachment({
       reader.readAsDataURL(file);
     }
     setShowOptions(false);
-  };
+  }, [onChange]);
 
-  const handleCameraClick = () => {
+  const handleCameraClick = useCallback(() => {
     cameraInputRef.current?.click();
     setShowOptions(false);
-  };
+  }, []);
 
-  const handleFileClick = () => {
+  const handleFileClick = useCallback(() => {
     fileInputRef.current?.click();
     setShowOptions(false);
-  };
+  }, []);
 
-  const handleRemove = () => {
+  const handleRemove = useCallback(() => {
     onChange("");
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -65,7 +65,7 @@ export default function PhotoAttachment({
     if (cameraInputRef.current) {
       cameraInputRef.current.value = "";
     }
-  };
+  }, [onChange]);
 
   return (
     <div className="w-full">
@@ -244,12 +244,11 @@ export default function PhotoAttachment({
       )}
     </div>
   );
-}
+});
 
+PhotoAttachment.displayName = "PhotoAttachment";
 
-
-
-
+export default PhotoAttachment;
 
 
 

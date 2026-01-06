@@ -2,6 +2,16 @@ export type BusinessUnit = "G3" | "PrintersUAE" | "IT";
 
 export type Role = "admin" | "employee" | "customer";
 
+export type FeatureAccess =
+  | "payroll"
+  | "assets"
+  | "tickets"
+  | "schedule_works"
+  | "dashboard"
+  | "setup"
+  | "notifications"
+  | "advertisements";
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -20,6 +30,7 @@ export interface Employee {
   role: string;
   status: EmployeeStatus;
   payrollDate?: number; // Day of month (1-31)
+  featureAccess?: FeatureAccess[]; // Array of feature access permissions
 }
 
 export interface CustomerUser {

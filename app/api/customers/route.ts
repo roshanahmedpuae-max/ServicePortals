@@ -7,8 +7,13 @@ export async function GET(request: NextRequest) {
   try {
     const user = requireAuth(request, ["admin"]);
     await connectToDatabase();
-    const customers = await CustomerModel.find({ businessUnit: user.businessUnit });
-    return NextResponse.json(customers.map((c) => c.toJSON()));
+    const customers = await CustomerModel.find({ businessUnit: user.businessUnit }).lean();
+    return NextResponse.json(customers.map((c: any) => ({
+      id: c._id.toString(),
+      name: c.name,
+      contact: c.contact,
+      businessUnit: c.businessUnit,
+    })));
   } catch (error) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

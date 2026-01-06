@@ -9,8 +9,13 @@ export async function GET(request: NextRequest) {
     await connectToDatabase();
     const serviceTypes = await ServiceTypeModel.find({
       businessUnit: user.businessUnit,
-    });
-    return NextResponse.json(serviceTypes.map((s) => s.toJSON()));
+    }).lean();
+    return NextResponse.json(serviceTypes.map((s: any) => ({
+      id: s._id.toString(),
+      name: s.name,
+      description: s.description,
+      businessUnit: s.businessUnit,
+    })));
   } catch (error) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

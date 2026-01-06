@@ -46,7 +46,7 @@ const WorkOrderSchema = new Schema<WorkOrderDocument>(
     customerId: { type: String, required: true },
     customerName: { type: String },
     serviceTypeId: { type: String },
-    assignedEmployeeId: { type: String },
+    assignedEmployeeId: { type: String, index: true },
     workDescription: { type: String, required: true },
     locationAddress: { type: String, required: true },
     customerPhone: { type: String, required: true },
@@ -63,7 +63,7 @@ const WorkOrderSchema = new Schema<WorkOrderDocument>(
     customerNameAtCompletion: { type: String },
     signature: { type: String },
     customerApproval: { type: String },
-    status: { type: String, enum: ["Draft", "Assigned", "Submitted"], default: "Draft" },
+    status: { type: String, enum: ["Draft", "Assigned", "Submitted"], default: "Draft", index: true },
     audit: {
       createdBy: { type: String, required: true },
       updatedBy: { type: String, required: true },
@@ -91,6 +91,12 @@ const WorkOrderSchema = new Schema<WorkOrderDocument>(
     },
   }
 );
+
+// Compound indexes for efficient queries
+WorkOrderSchema.index({ businessUnit: 1, status: 1 });
+WorkOrderSchema.index({ businessUnit: 1, assignedEmployeeId: 1 });
+WorkOrderSchema.index({ assignedEmployeeId: 1, status: 1 });
+WorkOrderSchema.index({ businessUnit: 1, orderDateTime: -1 });
 
 const WorkOrderModel: Model<WorkOrderDocument> =
   (mongoose.models.WorkOrder as Model<WorkOrderDocument>) ||

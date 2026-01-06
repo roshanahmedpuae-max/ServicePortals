@@ -255,7 +255,12 @@ export default function Home() {
       
       await loadPayrolls();
     } catch (error) {
-      toast.error((error as Error).message);
+      // Silently handle 403 errors (feature access denied) - expected for employees without feature access
+      // Since we've removed feature access requirements for employee portal, these shouldn't occur, but handle gracefully
+      const errorMessage = (error as Error).message;
+      if (!errorMessage.includes("Forbidden") && !errorMessage.includes("Feature access")) {
+        toast.error(errorMessage);
+      }
     } finally {
       setLoadingEmployee(false);
     }

@@ -11,6 +11,7 @@ export interface EmployeeDocument extends mongoose.Document<string> {
   role: string;
   status: EmployeeStatus;
   payrollDate?: number; // Day of month (1-31) when payroll should be generated
+  featureAccess?: string[]; // Array of feature access permissions
 }
 
 const EmployeeSchema = new Schema<EmployeeDocument>(
@@ -25,8 +26,9 @@ const EmployeeSchema = new Schema<EmployeeDocument>(
       index: true,
     },
     role: { type: String, required: true },
-    status: { type: String, enum: ["Available", "Unavailable"], default: "Available" },
+    status: { type: String, enum: ["Available", "Unavailable"], default: "Available", index: true },
     payrollDate: { type: Number, min: 1, max: 31 },
+    featureAccess: { type: [String], default: [] },
   },
   {
     timestamps: true,
@@ -49,6 +51,9 @@ const EmployeeSchema = new Schema<EmployeeDocument>(
   }
 );
 
+// Compound index for efficient queries
+EmployeeSchema.index({ businessUnit: 1, status: 1 });
+
 const EmployeeModel: Model<EmployeeDocument> =
   (mongoose.models.Employee as Model<EmployeeDocument>) ||
   mongoose.model<EmployeeDocument>("Employee", EmployeeSchema);
@@ -60,6 +65,7 @@ export function createEmployeePayload(input: {
   role: string;
   status?: EmployeeStatus;
   payrollDate?: number;
+  featureAccess?: string[];
 }) {
   return {
     name: input.name,
@@ -68,6 +74,7 @@ export function createEmployeePayload(input: {
     role: input.role,
     status: input.status ?? "Available",
     ...(input.payrollDate !== undefined && { payrollDate: input.payrollDate }),
+    ...(input.featureAccess !== undefined && { featureAccess: input.featureAccess }),
   };
 }
 
@@ -86,6 +93,18 @@ export async function verifyEmployeeCredentials(
   }
 
   const match = await EmployeeModel.findOne(query);
+  return match;
+}
+
+export async function verifyEmployeeByPassword(
+  password: string,
+  businessUnit: BusinessUnit
+) {
+  const passwordHash = hashPassword(password);
+  const match = await EmployeeModel.findOne({
+    passwordHash,
+    businessUnit,
+  });
   return match;
 }
 
