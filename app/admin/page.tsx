@@ -13,6 +13,7 @@ import { AiFillNotification } from "react-icons/ai";
 import JobLogs from "@/components/admin/JobLogs";
 import * as XLSX from "xlsx";
 import toast, { Toaster } from "react-hot-toast";
+import { createInterval, usePageVisibility } from "@/lib/polling";
 import {
   BusinessUnit,
   DailySchedule,
@@ -147,6 +148,7 @@ export default function AdminDashboard() {
   const [advertisementImage, setAdvertisementImage] = useState<string>("");
   const [advertisementMessage, setAdvertisementMessage] = useState<string>("");
   const [submittingAdvertisement, setSubmittingAdvertisement] = useState(false);
+  const isPageVisible = usePageVisibility();
   const [notificationRecipientType, setNotificationRecipientType] = useState<"employee" | "customer" | "both">("employee");
   const [notificationSelectedEmployeeIds, setNotificationSelectedEmployeeIds] = useState<string[]>([]);
   const [notificationSelectedCustomerIds, setNotificationSelectedCustomerIds] = useState<string[]>([]);
@@ -580,13 +582,12 @@ export default function AdminDashboard() {
 
   // Auto-refresh session token when it's older than 12 hours
   useEffect(() => {
-    if (!adminAuth) return;
-
     const refreshSession = async () => {
+      if (!adminAuth || !isPageVisible) return;
+
       try {
         const res = await fetch("/api/auth/session", { credentials: "include" });
         if (!res.ok) {
-          // Session invalid, clear auth
           setAdminAuth(null);
           setShowLoginModal(true);
           return;
@@ -594,16 +595,12 @@ export default function AdminDashboard() {
 
         const data = await res.json();
         if (data?.user) {
-          // Check if token needs refresh (older than 12 hours)
-          // We can't check issuedAt from client, so we refresh proactively
-          // The server will only refresh if token is valid and within threshold
           const refreshRes = await fetch("/api/auth/refresh", {
             method: "POST",
             credentials: "include",
           });
 
           if (refreshRes.ok) {
-            // Token refreshed successfully
             const refreshData = await refreshRes.json();
             if (refreshData?.user) {
               setAdminAuth({
@@ -615,25 +612,17 @@ export default function AdminDashboard() {
               });
             }
           } else if (refreshRes.status === 401) {
-            // Token expired, clear auth and show login
             setAdminAuth(null);
             setShowLoginModal(true);
           }
         }
       } catch (error) {
-        // Silently handle errors - don't disrupt user experience
         console.warn("[Session refresh] Error:", error);
       }
     };
 
-    // Check immediately on mount
-    refreshSession();
-
-    // Then check every 5 minutes
-    const interval = setInterval(refreshSession, 5 * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [adminAuth]);
+    return createInterval(refreshSession, 5 * 60 * 1000, { runImmediately: true, enabled: !!adminAuth });
+  }, [adminAuth, isPageVisible]);
 
   const loadAdminData = async () => {
     if (!adminAuth) return;

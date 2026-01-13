@@ -29,7 +29,6 @@ import AutocompleteInput from "./ui/AutocompleteInput";
 import FormSection from "./FormSection";
 import SignaturePad from "./SignaturePad";
 import PhotoAttachment from "./PhotoAttachment";
-import PDFPreviewModal from "./PDFPreviewModal";
 
 // Get current date/time formatted for datetime-local input
 function getCurrentDateTime() {
@@ -44,16 +43,32 @@ function getCurrentDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+interface AssignedSubmitPayload {
+  findings?: string;
+  beforePhotos?: string[];
+  afterPhotos?: string[];
+  workCompletionDate: string;
+  employeeSignature: string;
+  customerSignature: string;
+  customerNameAtCompletion?: string;
+}
+
 interface ServiceOrderFormProps {
   onBack: () => void;
   businessUnit: BusinessUnit;
   prefilledData?: WorkOrder;
+  assignedWorkOrderId?: string;
+  onAssignedSubmit?: (workOrderId: string, payload: AssignedSubmitPayload) => Promise<void>;
 }
 
-const ServiceOrderForm = React.memo(function ServiceOrderForm({ onBack, businessUnit, prefilledData }: ServiceOrderFormProps) {
+const ServiceOrderForm = React.memo(function ServiceOrderForm({
+  onBack,
+  businessUnit,
+  prefilledData,
+  assignedWorkOrderId,
+  onAssignedSubmit,
+}: ServiceOrderFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewData, setPreviewData] = useState<ServiceOrderFormData | null>(null);
   const { customers, serviceTypes, employees, loading, error } = useBuOptions(businessUnit);
 
   const {
@@ -183,16 +198,58 @@ const ServiceOrderForm = React.memo(function ServiceOrderForm({ onBack, business
     [employees]
   );
 
-  const onSubmit = useCallback(async (data: ServiceOrderFormData) => {
-    // Store form data and show preview modal
-    setPreviewData(data);
-    setShowPreview(true);
-  }, []);
+  const onSubmit = useCallback(
+    async (data: ServiceOrderFormData) => {
+      setIsSubmitting(true);
+      try {
+        // If this form is being used for an assigned work order (employee portal),
+        // call the assigned submit handler instead of the public submit-order API.
+        if (assignedWorkOrderId && onAssignedSubmit) {
+          const payload: AssignedSubmitPayload = {
+            findings: data.incompleteWorkExplanation,
+            beforePhotos: data.workPhotos?.map((p) => p.beforePhoto).filter(Boolean),
+            afterPhotos: data.workPhotos?.map((p) => p.afterPhoto).filter(Boolean),
+            workCompletionDate: data.completionDate,
+            employeeSignature: data.technicianSignature,
+            customerSignature: data.customerSignature,
+            customerNameAtCompletion: data.customerApprovalName,
+          };
+          await onAssignedSubmit(assignedWorkOrderId, payload);
+          reset();
+          onBack();
+          return;
+        }
 
-  const handleClosePreview = useCallback(() => {
-    setShowPreview(false);
-    setPreviewData(null);
-  }, []);
+        const response = await fetch("/api/submit-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            ...data,
+            serviceType: "printers-uae",
+          }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error?.message || result.error || "Failed to submit work order");
+        }
+
+        toast.success("Work order submitted successfully!");
+        reset();
+        onBack();
+      } catch (error) {
+        console.error("Form submission error:", error);
+        toast.error(
+          error instanceof Error ? error.message : "Failed to submit work order. Please try again."
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [assignedWorkOrderId, onAssignedSubmit, reset, onBack]
+  );
 
   return (
     <>
@@ -512,18 +569,9 @@ const ServiceOrderForm = React.memo(function ServiceOrderForm({ onBack, business
         </div>
       </div>
     </form>
-
-
-    {/* PDF Preview Modal */}
-    <PDFPreviewModal
-      isOpen={showPreview}
-      onClose={handleClosePreview}
-      formData={previewData}
-      serviceType="printers-uae"
-    />
-      {loading && (
-        <div className="px-4 py-2 text-sm text-gray-500">Loading latest options...</div>
-      )}
+    {loading && (
+      <div className="px-4 py-2 text-sm text-gray-500">Loading latest options...</div>
+    )}
     </>
   );
 });

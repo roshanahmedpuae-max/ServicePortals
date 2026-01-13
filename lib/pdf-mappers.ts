@@ -1,4 +1,5 @@
 import { ServiceOrderFormData } from "./validation";
+import { WorkOrder } from "./types";
 
 /**
  * Portal-specific data mappers
@@ -142,3 +143,66 @@ export function mapFormDataToServiceOrderData(data: any, portalType?: "printers-
   }
 }
 
+/**
+ * Convert WorkOrder document back to ServiceOrderFormData format for PDF generation
+ * This is the reverse mapping of mapFormDataToServiceOrderData
+ */
+export function mapWorkOrderToFormData(
+  workOrder: WorkOrder,
+  employeeName?: string,
+  serviceTypeName?: string
+): ServiceOrderFormData {
+  // Merge beforePhotos and afterPhotos into workPhotos array
+  const workPhotos: Array<{ id: string; beforePhoto: string; afterPhoto: string }> = [];
+  
+  const maxLength = Math.max(
+    workOrder.beforePhotos?.length || 0,
+    workOrder.afterPhotos?.length || 0
+  );
+  
+  for (let i = 0; i < maxLength; i++) {
+    workPhotos.push({
+      id: `photo-${i}-${Date.now()}`,
+      beforePhoto: workOrder.beforePhotos?.[i] || "",
+      afterPhoto: workOrder.afterPhotos?.[i] || "",
+    });
+  }
+
+  // Format orderDateTime for datetime-local input (YYYY-MM-DDTHH:mm)
+  const orderDate = workOrder.orderDateTime ? new Date(workOrder.orderDateTime) : new Date();
+  const orderDateTimeFormatted = orderDate.toISOString().slice(0, 16);
+
+  // Format completion date for date input (YYYY-MM-DD)
+  const completionDateFormatted = workOrder.workCompletionDate
+    ? new Date(workOrder.workCompletionDate).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
+  // Format approval date for date input (YYYY-MM-DD)
+  const approvalDateFormatted = workOrder.approvalDate
+    ? new Date(workOrder.approvalDate).toISOString().slice(0, 10)
+    : completionDateFormatted;
+
+  return {
+    requesterName: workOrder.customerName || "",
+    locationAddress: workOrder.locationAddress || "",
+    phone: workOrder.customerPhone || "",
+    email: "", // Not stored in WorkOrder
+    customerType: serviceTypeName || "Service and Repair", // Default, should be fetched from serviceTypeId
+    priorityLevel: "Normal", // Not stored in WorkOrder, use default
+    orderDateTime: orderDateTimeFormatted,
+    quotationReferenceNumber: workOrder.quotationReferenceNumber || "",
+    workAssignedTo: employeeName || "", // Should be fetched from assignedEmployeeId
+    workBilledTo: "", // Not stored in WorkOrder
+    requestDescription: workOrder.workDescription || "",
+    incompleteWorkExplanation: workOrder.findings || "",
+    countReportPhoto: "", // Not stored in WorkOrder
+    workPhotos: workPhotos,
+    workCompletedBy: employeeName || "", // Should be fetched from assignedEmployeeId
+    completionDate: completionDateFormatted,
+    technicianSignature: workOrder.employeeSignature || "",
+    customerApprovalName: workOrder.customerNameAtCompletion || workOrder.customerName || "",
+    customerSignature: workOrder.customerSignature || "",
+    customerApprovalDate: approvalDateFormatted,
+    paymentMethod: (workOrder.paymentMethod && ["Cash", "Bank transfer", "POS Sale"].includes(workOrder.paymentMethod)) ? (workOrder.paymentMethod as "Cash" | "Bank transfer" | "POS Sale") : "",
+  };
+}

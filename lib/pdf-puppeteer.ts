@@ -1,4 +1,4 @@
-import puppeteer from "puppeteer-core";
+import puppeteerCore from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 
 interface PdfOptions {
@@ -13,7 +13,7 @@ interface PdfResult {
 
 /**
  * Generate PDF from HTML using Puppeteer
- * This is optimized for Vercel serverless environment using @sparticuz/chromium
+ * Uses full puppeteer in local/dev, and @sparticuz/chromium + puppeteer-core in serverless (Vercel).
  * 
  * Benefits over @react-pdf/renderer:
  * - 5-10x faster PDF generation
@@ -22,34 +22,48 @@ interface PdfResult {
  * - Supports all modern CSS features including gradients
  */
 export async function generatePdfFromHtml({ html, filename }: PdfOptions): Promise<PdfResult> {
-  // Configure chromium for serverless environment
-  chromium.setHeadlessMode = true;
-  chromium.setGraphicsMode = false;
+  const isServerless = !!process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_VERSION !== undefined;
 
-  let browser = null;
+  let browser: any = null;
   
   try {
-    // Launch browser with optimized settings for serverless
-    browser = await puppeteer.launch({
-      args: [
-        ...chromium.args,
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--disable-setuid-sandbox",
-        "--no-first-run",
-        "--no-sandbox",
-        "--no-zygote",
-        "--single-process",
-        "--disable-extensions",
-      ],
-      defaultViewport: {
-        width: 595, // A4 width in points at 72 DPI
-        height: 842, // A4 height in points
-        deviceScaleFactor: 2, // Higher quality rendering
-      },
-      executablePath: await chromium.executablePath(),
-      headless: true,
-    });
+    if (isServerless) {
+      // Serverless (Vercel) – use chromium + puppeteer-core
+      chromium.setHeadlessMode = true;
+      chromium.setGraphicsMode = false;
+
+      browser = await puppeteerCore.launch({
+        args: [
+          ...chromium.args,
+          "--disable-gpu",
+          "--disable-dev-shm-usage",
+          "--disable-setuid-sandbox",
+          "--no-first-run",
+          "--no-sandbox",
+          "--no-zygote",
+          "--single-process",
+          "--disable-extensions",
+        ],
+        defaultViewport: {
+          width: 595, // A4 width in points at 72 DPI
+          height: 842, // A4 height in points
+          deviceScaleFactor: 2, // Higher quality rendering
+        },
+        executablePath: await chromium.executablePath(),
+        headless: true,
+      });
+    } else {
+      // Local/dev – use full puppeteer (bundled Chromium) for easier setup on Windows
+      const puppeteer = await import("puppeteer");
+      browser = await puppeteer.launch({
+        headless: true,
+        defaultViewport: {
+          width: 595,
+          height: 842,
+          deviceScaleFactor: 2,
+        },
+      });
+    }
 
     const page = await browser.newPage();
     

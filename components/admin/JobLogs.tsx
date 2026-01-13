@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from "react";
 import { WorkOrder, WorkOrderStatus } from "@/lib/types";
+import toast from "react-hot-toast";
+import { downloadPdfFromBase64 } from "@/lib/pdf-client";
 
 // Simple employee type for display purposes only
 interface SimpleEmployee {
@@ -73,6 +75,7 @@ export default function JobLogs({
   const [sortField, setSortField] = useState<"orderDateTime" | "customerName" | "status">("orderDateTime");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
 
   // Filter to show only submitted/completed work orders for job logs
   const jobLogOrders = useMemo(() => {
@@ -150,6 +153,33 @@ export default function JobLogs({
     setEmployeeFilter("all");
     setDateRange({ start: "", end: "" });
     setSearchTerm("");
+  };
+
+  const handleDownloadPdf = async (workOrderId: string) => {
+    setDownloadingPdfId(workOrderId);
+    try {
+      const response = await fetch(`/api/work-orders/${workOrderId}/pdf`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to download PDF");
+      }
+
+      const result = await response.json();
+      if (result.success && result.pdf) {
+        downloadPdfFromBase64(result.pdf.base64, result.pdf.filename);
+        toast.success("PDF downloaded successfully!");
+      } else {
+        throw new Error("Invalid response from server");
+      }
+    } catch (error) {
+      console.error("PDF download error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to download PDF");
+    } finally {
+      setDownloadingPdfId(null);
+    }
   };
 
   // Stats for the summary cards
@@ -421,6 +451,28 @@ export default function JobLogs({
                             d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                           />
                         </svg>
+                      </button>
+                      <button
+                        onClick={() => handleDownloadPdf(order.id)}
+                        disabled={downloadingPdfId === order.id}
+                        className="text-emerald-600 hover:text-emerald-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Download PDF"
+                      >
+                        {downloadingPdfId === order.id ? (
+                          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            />
+                          </svg>
+                        )}
                       </button>
                     </div>
                   </td>

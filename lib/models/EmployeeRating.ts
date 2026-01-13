@@ -10,6 +10,7 @@ export interface EmployeeRatingDocument extends mongoose.Document<string> {
   score: number; // 1-5
   comment?: string;
   ratingToken: string;
+  submittedAt?: Date; // Timestamp when customer actually submitted the rating
 }
 
 const EmployeeRatingSchema = new Schema<EmployeeRatingDocument>(
@@ -26,6 +27,7 @@ const EmployeeRatingSchema = new Schema<EmployeeRatingDocument>(
     score: { type: Number, required: true, min: 1, max: 5 },
     comment: { type: String },
     ratingToken: { type: String, required: true, unique: true, index: true },
+    submittedAt: { type: Date },
   },
   {
     timestamps: true,

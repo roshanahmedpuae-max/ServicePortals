@@ -316,20 +316,12 @@ export async function POST(request: NextRequest) {
 
     console.log(`[${requestId}] Work order submission completed successfully, workOrderId: ${workOrder._id}, emailSent: ${emailSent}`);
 
-    // Convert buffer to base64 for client consumption (same shape as preview route)
-    const base64 = Buffer.from(pdfBuffer).toString("base64");
-
     return NextResponse.json({
       success: true,
       message: emailSent
         ? "Work order submitted and saved successfully! Email notifications sent."
         : "Work order submitted and saved successfully! (Email notifications not configured or failed)",
       workOrderId: workOrder._id,
-      pdf: {
-        base64,
-        filename,
-        mimeType: "application/pdf",
-      },
       requestId: isDev ? requestId : undefined,
     });
   } catch (error) {

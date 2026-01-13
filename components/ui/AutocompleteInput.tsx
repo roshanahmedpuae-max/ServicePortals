@@ -18,16 +18,30 @@ const AutocompleteInput = forwardRef<HTMLInputElement, AutocompleteInputProps>(
     const [highlightedIndex, setHighlightedIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLUListElement>(null);
+    const justSelectedRef = useRef(false); // Track if a selection was just made
 
     // Filter suggestions based on input value
     useEffect(() => {
+      // If a selection was just made, don't reopen the dropdown
+      if (justSelectedRef.current) {
+        justSelectedRef.current = false;
+        setFilteredSuggestions([]);
+        setIsOpen(false);
+        return;
+      }
+
       if (value.length >= 1) {
         const searchTerm = value.toLowerCase();
         const filtered = suggestions.filter((suggestion) =>
           suggestion.toLowerCase().includes(searchTerm)
         );
+        
+        // Check if value exactly matches a suggestion - if so, don't show dropdown
+        const exactMatch = suggestions.some(s => s.toLowerCase() === searchTerm);
+        
         setFilteredSuggestions(filtered);
-        setIsOpen(filtered.length > 0);
+        // Only open if there are filtered results AND value doesn't exactly match (user is still searching)
+        setIsOpen(filtered.length > 0 && !exactMatch);
         setHighlightedIndex(-1);
       } else {
         setFilteredSuggestions([]);
@@ -89,8 +103,10 @@ const AutocompleteInput = forwardRef<HTMLInputElement, AutocompleteInputProps>(
         case "Enter":
           e.preventDefault();
           if (highlightedIndex >= 0 && highlightedIndex < filteredSuggestions.length) {
+            justSelectedRef.current = true; // Prevent useEffect from reopening dropdown
             onChange(filteredSuggestions[highlightedIndex]);
             setIsOpen(false);
+            setFilteredSuggestions([]);
           }
           break;
         case "Escape":
@@ -101,8 +117,10 @@ const AutocompleteInput = forwardRef<HTMLInputElement, AutocompleteInputProps>(
     };
 
     const handleSuggestionClick = (suggestion: string) => {
+      justSelectedRef.current = true; // Prevent useEffect from reopening dropdown
       onChange(suggestion);
       setIsOpen(false);
+      setFilteredSuggestions([]);
     };
 
     // Highlight matching text in suggestion
@@ -143,8 +161,13 @@ const AutocompleteInput = forwardRef<HTMLInputElement, AutocompleteInputProps>(
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onFocus={() => {
-              if (value.length >= 1 && filteredSuggestions.length > 0) {
-                setIsOpen(true);
+              // Only reopen dropdown if user is actively searching (value doesn't exactly match a suggestion)
+              // This prevents reopening when user clicks back into field after selecting
+              if (value.length >= 1) {
+                const exactMatch = suggestions.some(s => s.toLowerCase() === value.toLowerCase());
+                if (!exactMatch && filteredSuggestions.length > 0) {
+                  setIsOpen(true);
+                }
               }
             }}
             autoComplete="off"

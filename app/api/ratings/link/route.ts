@@ -47,14 +47,25 @@ export async function POST(request: NextRequest) {
       workOrderId,
     });
 
+    // If rating exists and has already been submitted, return error
+    if (rating && rating.submittedAt) {
+      return NextResponse.json(
+        { error: "A rating has already been submitted for this work order" },
+        { status: 409 }
+      );
+    }
+
     if (!rating) {
       const ratingToken = generateToken();
+      // Initialize with a neutral valid score (schema requires 1–5)
+      // submittedAt is not set, indicating it hasn't been submitted yet
       rating = await EmployeeRatingModel.create({
         businessUnit: auth.businessUnit,
         employeeId: auth.id,
         workOrderId,
-        score: 0,
+        score: 1,
         ratingToken,
+        // submittedAt is not set - will be set when customer submits
       });
     }
 

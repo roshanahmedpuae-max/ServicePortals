@@ -21,6 +21,8 @@ import G3FacilityForm from "@/components/G3FacilityForm";
 import ITServiceForm from "@/components/ITServiceForm";
 import PayrollSignatureModal from "@/components/PayrollSignatureModal";
 import { BusinessUnit, DailySchedule, Ticket, WorkOrder, Payroll, TicketStatus } from "@/lib/types";
+import { createInterval, usePageVisibility } from "@/lib/polling";
+import { downloadPdfFromBase64 } from "@/lib/pdf-client";
 
 type ServiceType = "printers-uae" | "g3-facility" | "it-service" | null;
 type EmployeeOption = {
@@ -71,6 +73,16 @@ const SERVICE_CONFIG = {
     gradient: "from-purple-600 to-violet-600",
     logo: null,
   },
+};
+
+const SLOW_POLLING = process.env.NEXT_PUBLIC_SLOW_POLLING === "true";
+const POLLING_INTERVALS = {
+  // Critical-ish (notifications)
+  notifications: SLOW_POLLING ? 60000 : 30000,
+  // Normal data refresh (work orders, schedules, tickets, ratings)
+  workData: SLOW_POLLING ? 120000 : 60000,
+  // Session refresh stays at 5 minutes (server enforces thresholds)
+  session: 5 * 60 * 1000,
 };
 
 export default function Home() {
@@ -173,6 +185,19 @@ export default function Home() {
       expiryDate?: string;
     }[]
   >([]);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
+  const [copyingRatingId, setCopyingRatingId] = useState<string | null>(null);
+
+  const isPageVisible = usePageVisibility();
+
+  // Ref to track current employeeAuth for background refresh (prevents infinite loop)
+  const employeeAuthRef = useRef<EmployeeAuth | null>(null);
+  const isRefreshingSessionRef = useRef(false);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    employeeAuthRef.current = employeeAuth;
+  }, [employeeAuth]);
   const [selectedPayrollForSigning, setSelectedPayrollForSigning] = useState<Payroll | null>(null);
   const [rejectingPayrollId, setRejectingPayrollId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -199,9 +224,11 @@ export default function Home() {
     }
   };
 
+  // Use ref-based authedFetch to avoid re-renders when employeeAuth changes
   const authedFetch = useCallback(
     async (url: string, init?: RequestInit) => {
-      if (!employeeAuth) throw new Error("Not signed in");
+      // Use ref to check auth status - prevents function recreation on auth changes
+      if (!employeeAuthRef.current) throw new Error("Not signed in");
 
       const doFetch = async () => {
         const res = await fetch(url, {
@@ -255,7 +282,7 @@ export default function Home() {
       }
       return res.json();
     },
-    [employeeAuth, setEmployeeAuth, setShowLoginModal]
+    [] // Empty dependency array - function never changes
   );
 
   const loadPayrolls = async () => {
@@ -370,15 +397,21 @@ export default function Home() {
     checkSession();
   }, []);
 
-  // Auto-refresh employee session token when it's older than 12 hours
+  // Auto-refresh employee session token in background (every 5 minutes)
+  // Uses refs to avoid re-running effect and causing infinite loops
   useEffect(() => {
-    if (!employeeAuth) return;
-
     const refreshSession = async () => {
+      if (!isPageVisible) return;
+
+      const currentAuth = employeeAuthRef.current;
+      if (!currentAuth) return;
+
+      if (isRefreshingSessionRef.current) return;
+      isRefreshingSessionRef.current = true;
+
       try {
         const res = await fetch("/api/auth/session", { credentials: "include" });
         if (!res.ok) {
-          // Session invalid, clear auth and show login
           setEmployeeAuth(null);
           setShowLoginModal(true);
           return;
@@ -392,36 +425,25 @@ export default function Home() {
           });
 
           if (refreshRes.ok) {
-            const refreshData = await refreshRes.json();
-            if (refreshData?.user?.role === "employee") {
-              setEmployeeAuth({
-                id: refreshData.user.id,
-                name: refreshData.user.name ?? employeeAuth.name,
-                businessUnit: refreshData.user.businessUnit ?? employeeAuth.businessUnit,
-                role: refreshData.user.role ?? employeeAuth.role,
-                status: refreshData.user.status ?? employeeAuth.status,
-              });
-            }
+            // Token refreshed successfully in background - no need to update state
+            console.log("[Employee session refresh] Token refreshed successfully");
           } else if (refreshRes.status === 401) {
-            // Token expired, clear auth and show login
             setEmployeeAuth(null);
             setShowLoginModal(true);
           }
         }
       } catch (error) {
-        // Silently handle errors - don't disrupt user experience
         console.warn("[Employee session refresh] Error:", error);
+      } finally {
+        isRefreshingSessionRef.current = false;
       }
     };
 
-    // Check immediately on mount
-    refreshSession();
-
-    // Then check every 5 minutes
-    const interval = setInterval(refreshSession, 5 * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [employeeAuth]);
+    return createInterval(refreshSession, POLLING_INTERVALS.session, {
+      runImmediately: false,
+      enabled: true,
+    });
+  }, [isPageVisible]);
 
   useEffect(() => {
     const loadLeaves = async () => {
@@ -690,10 +712,10 @@ export default function Home() {
   }, [showNotifications]);
 
   useEffect(() => {
-    if (employeeAuth?.businessUnit === "PrintersUAE") {
+    if (employeeAuth?.businessUnit === "PrintersUAE" && showAssignments && isPageVisible) {
       loadEmployeeData();
     }
-  }, [employeeAuth?.businessUnit, assignmentDateFilter]);
+  }, [employeeAuth?.businessUnit, assignmentDateFilter, showAssignments, isPageVisible]);
 
   // Refresh work orders when window regains focus (for employees)
   useEffect(() => {
@@ -723,16 +745,17 @@ export default function Home() {
     }
   }, [showNotifications]);
 
-  // Periodic polling to refresh work orders every 30 seconds (for employees)
+  // Periodic polling to refresh work orders (scoped to assignments view)
   useEffect(() => {
-    if (employeeAuth) {
-      const interval = setInterval(() => {
+    return createInterval(
+      () => {
+        if (!employeeAuth || !showAssignments || !isPageVisible) return;
         loadEmployeeData();
-      }, 30000); // 30 seconds
-
-      return () => clearInterval(interval);
-    }
-  }, [employeeAuth]);
+      },
+      POLLING_INTERVALS.workData,
+      { enabled: !!employeeAuth && showAssignments }
+    );
+  }, [employeeAuth, showAssignments, isPageVisible, assignmentDateFilter]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -753,9 +776,8 @@ export default function Home() {
 
   // Refresh employee notifications periodically
   useEffect(() => {
-    if (!employeeAuth) return;
-
     const refreshNotifications = async () => {
+      if (!employeeAuth || !isPageVisible) return;
       try {
         const notifData = await authedFetch("/api/employee/notifications");
         setNotifications(Array.isArray(notifData) ? notifData : []);
@@ -765,11 +787,11 @@ export default function Home() {
       }
     };
 
-    refreshNotifications();
-    const interval = setInterval(refreshNotifications, 30000); // Refresh every 30 seconds
-
-    return () => clearInterval(interval);
-  }, [employeeAuth, authedFetch]);
+    return createInterval(refreshNotifications, POLLING_INTERVALS.notifications, {
+      runImmediately: true,
+      enabled: !!employeeAuth,
+    });
+  }, [employeeAuth, authedFetch, isPageVisible]);
 
   // Refresh employee list when login modal opens
   useEffect(() => {
@@ -777,6 +799,12 @@ export default function Home() {
       loadEmployees();
     }
   }, [showLoginModal]);
+
+  useEffect(() => {
+    if (employeeAuth) {
+      loadEmployees();
+    }
+  }, [employeeAuth]);
 
   useEffect(() => {
     if (!showLoginModal) {
@@ -797,14 +825,7 @@ export default function Home() {
     }
   }, [showLoginModal]);
 
-  // Periodic polling to refresh employee list every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadEmployees();
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
+  // Refresh employee list on focus (manual/visibility driven)
 
   // Refresh employee list when window regains focus
   useEffect(() => {
@@ -846,6 +867,33 @@ export default function Home() {
   };
 
   const completedOrders = workOrders.filter((w) => w.status === "Submitted");
+
+  const handleDownloadPdf = async (workOrderId: string) => {
+    setDownloadingPdfId(workOrderId);
+    try {
+      const response = await fetch(`/api/work-orders/${workOrderId}/pdf`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to download PDF");
+      }
+
+      const result = await response.json();
+      if (result.success && result.pdf) {
+        downloadPdfFromBase64(result.pdf.base64, result.pdf.filename);
+        toast.success("PDF downloaded successfully!");
+      } else {
+        throw new Error("Invalid response from server");
+      }
+    } catch (error) {
+      console.error("PDF download error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to download PDF");
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
 
   const handleRejectPayroll = async () => {
     if (!rejectingPayrollId) return;
@@ -1312,6 +1360,17 @@ export default function Home() {
       {employeeAuth && showAssignments ? (
         <div className="mt-4 flex justify-center">
           <div className="hidden md:flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                loadEmployeeData();
+                loadEmployees();
+              }}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20 text-white shadow hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 transition"
+              title="Refresh assignments data"
+            >
+              <span className="text-sm font-semibold">Refresh</span>
+            </button>
             <div className="relative">
               <button
                 ref={notificationButtonRef}
@@ -1652,6 +1711,7 @@ export default function Home() {
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {workOrders
+              .filter((w) => w.status !== "Submitted")
               .filter((w) => {
                 if (!assignmentDateFilter) return true;
                 const date = new Date(w.orderDateTime);
@@ -1715,42 +1775,6 @@ export default function Home() {
                         <p className="text-xs text-indigo-600 font-medium">Click to open form →</p>
                       </div>
                     </button>
-                    {isCompleted && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const res = await fetch("/api/ratings/link", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              credentials: "include",
-                              body: JSON.stringify({ workOrderId: w.id }),
-                            });
-                            const data = await res.json().catch(() => ({}));
-                            if (!res.ok) {
-                              throw new Error(data.error || "Failed to generate rating link");
-                            }
-                            const link = data.link as string;
-                            if (navigator.clipboard && link) {
-                              await navigator.clipboard.writeText(link);
-                              toast.success("Rating link copied. Share it with the customer.");
-                            } else {
-                              toast.success("Rating link generated. Please copy it from the browser.");
-                            }
-                          } catch (error) {
-                            toast.error(
-                              error instanceof Error
-                                ? error.message
-                                : "Failed to generate rating link"
-                            );
-                          }
-                        }}
-                        className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-500 text-white px-3 py-1 text-xs font-semibold shadow hover:bg-amber-400"
-                      >
-                        <FaFaceGrinStars className="w-3 h-3" />
-                        <span>Copy rating link</span>
-                      </button>
-                    )}
                   </div>
                 );
               })}
@@ -2225,6 +2249,8 @@ export default function Home() {
                           const jobNumber = `WO-${w.id.slice(0, 8).toUpperCase()}`;
                           const d = new Date(w.orderDateTime);
                           const date = Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(0, 10);
+                          const isDownloading = downloadingPdfId === w.id;
+                          const isCopyingRating = copyingRatingId === w.id;
                           return (
                             <div
                               key={w.id}
@@ -2238,7 +2264,83 @@ export default function Home() {
                               </div>
                               <p className="text-slate-800">{w.customerName ?? "Customer"}</p>
                               <p className="text-xs text-slate-500">{w.locationAddress}</p>
-                              <p className="text-xs text-slate-500 mt-1">Date: {date}</p>
+                              <div className="flex items-center justify-between mt-2">
+                                <p className="text-xs text-slate-500">Date: {date}</p>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setCopyingRatingId(w.id);
+                                      try {
+                                        const res = await fetch("/api/ratings/link", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          credentials: "include",
+                                          body: JSON.stringify({ workOrderId: w.id }),
+                                        });
+                                        const data = await res.json().catch(() => ({}));
+                                        if (!res.ok) {
+                                          throw new Error(data.error || "Failed to generate rating link");
+                                        }
+                                        const link = data.link as string;
+                                        if (navigator.clipboard && link) {
+                                          await navigator.clipboard.writeText(link);
+                                          toast.success("Rating link copied. Share it with the customer.");
+                                        } else {
+                                          toast.success("Rating link generated. Please copy it from the browser.");
+                                        }
+                                      } catch (error) {
+                                        toast.error(
+                                          error instanceof Error
+                                            ? error.message
+                                            : "Failed to generate rating link"
+                                        );
+                                      } finally {
+                                        setCopyingRatingId(null);
+                                      }
+                                    }}
+                                    disabled={isCopyingRating}
+                                    className="text-xs px-2 py-1 rounded-full bg-amber-500 text-white hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                                  >
+                                    {isCopyingRating ? (
+                                      <>
+                                        <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Copying...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <FaFaceGrinStars className="w-3 h-3" />
+                                        <span>Copy rating link</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDownloadPdf(w.id)}
+                                    disabled={isDownloading}
+                                    className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                  >
+                                    {isDownloading ? (
+                                      <>
+                                        <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Downloading...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        PDF
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           );
                         })}

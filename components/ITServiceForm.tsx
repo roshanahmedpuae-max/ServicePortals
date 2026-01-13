@@ -28,7 +28,6 @@ import AutocompleteInput from "./ui/AutocompleteInput";
 import FormSection from "./FormSection";
 import SignaturePad from "./SignaturePad";
 import PhotoAttachment from "./PhotoAttachment";
-import PDFPreviewModal from "./PDFPreviewModal";
 
 // Get current date/time formatted for datetime-local input
 function getCurrentDateTime() {
@@ -51,8 +50,6 @@ interface ITServiceFormProps {
 
 export default function ITServiceForm({ onBack, businessUnit, prefilledData }: ITServiceFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewData, setPreviewData] = useState<ServiceOrderFormData | null>(null);
   const { customers, serviceTypes, employees, loading, error } = useBuOptions(businessUnit);
 
   const {
@@ -176,14 +173,33 @@ export default function ITServiceForm({ onBack, businessUnit, prefilledData }: I
       : IT_TECHNICIANS.map((t) => ({ value: t, label: t }));
 
   const onSubmit = async (data: ServiceOrderFormData) => {
-    // Store form data and show preview modal
-    setPreviewData(data);
-    setShowPreview(true);
-  };
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/submit-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          ...data,
+          serviceType: "it-service",
+        }),
+      });
 
-  const handleClosePreview = () => {
-    setShowPreview(false);
-    setPreviewData(null);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || result.error || "Failed to submit work order");
+      }
+
+      toast.success("Work order submitted successfully!");
+      reset();
+      onBack();
+    } catch (error) {
+      console.error("Form submission error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to submit work order. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -504,18 +520,9 @@ export default function ITServiceForm({ onBack, businessUnit, prefilledData }: I
         </div>
       </div>
     </form>
-
-
-    {/* PDF Preview Modal */}
-    <PDFPreviewModal
-      isOpen={showPreview}
-      onClose={handleClosePreview}
-      formData={previewData}
-      serviceType="it-service"
-    />
-      {loading && (
-        <div className="px-4 py-2 text-sm text-gray-500">Loading latest options...</div>
-      )}
+    {loading && (
+      <div className="px-4 py-2 text-sm text-gray-500">Loading latest options...</div>
+    )}
     </>
   );
 }

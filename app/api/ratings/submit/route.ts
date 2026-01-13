@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If score already set (> 0), treat as already submitted
-    if (rating.score && rating.score >= 1 && rating.score <= 5) {
+    // Check if rating has already been submitted by checking submittedAt timestamp
+    if (rating.submittedAt) {
       return NextResponse.json(
         { error: "This rating link has already been used" },
         { status: 409 }
@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
     if (comment) {
       rating.comment = comment;
     }
+    rating.submittedAt = new Date();
     await rating.save();
 
     return NextResponse.json({ success: true });
