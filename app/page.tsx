@@ -202,21 +202,60 @@ export default function Home() {
   const authedFetch = useCallback(
     async (url: string, init?: RequestInit) => {
       if (!employeeAuth) throw new Error("Not signed in");
-      const res = await fetch(url, {
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          ...(init?.headers || {}),
-        },
-        credentials: "include",
-      });
+
+      const doFetch = async () => {
+        const res = await fetch(url, {
+          ...init,
+          headers: {
+            "Content-Type": "application/json",
+            ...(init?.headers || {}),
+          },
+          credentials: "include",
+        });
+        return res;
+      };
+
+      let res = await doFetch();
+
+      // Handle 401 Unauthorized - token expired or invalid
+      if (res.status === 401) {
+        try {
+          const refreshRes = await fetch("/api/auth/refresh", {
+            method: "POST",
+            credentials: "include",
+          });
+
+          if (refreshRes.ok) {
+            // Token refreshed successfully, retry original request
+            res = await doFetch();
+
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}));
+              // Still failed after refresh - session truly expired
+              setEmployeeAuth(null);
+              setShowLoginModal(true);
+              throw new Error(body.error || "Session expired. Please log in again.");
+            }
+          } else {
+            // Refresh failed - session expired
+            setEmployeeAuth(null);
+            setShowLoginModal(true);
+            throw new Error("Session expired. Please log in again.");
+          }
+        } catch (refreshError) {
+          setEmployeeAuth(null);
+          setShowLoginModal(true);
+          throw new Error("Session expired. Please log in again.");
+        }
+      }
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Request failed");
       }
       return res.json();
     },
-    [employeeAuth]
+    [employeeAuth, setEmployeeAuth, setShowLoginModal]
   );
 
   const loadPayrolls = async () => {
@@ -331,6 +370,59 @@ export default function Home() {
     checkSession();
   }, []);
 
+  // Auto-refresh employee session token when it's older than 12 hours
+  useEffect(() => {
+    if (!employeeAuth) return;
+
+    const refreshSession = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { credentials: "include" });
+        if (!res.ok) {
+          // Session invalid, clear auth and show login
+          setEmployeeAuth(null);
+          setShowLoginModal(true);
+          return;
+        }
+
+        const data = await res.json();
+        if (data?.user?.role === "employee") {
+          const refreshRes = await fetch("/api/auth/refresh", {
+            method: "POST",
+            credentials: "include",
+          });
+
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            if (refreshData?.user?.role === "employee") {
+              setEmployeeAuth({
+                id: refreshData.user.id,
+                name: refreshData.user.name ?? employeeAuth.name,
+                businessUnit: refreshData.user.businessUnit ?? employeeAuth.businessUnit,
+                role: refreshData.user.role ?? employeeAuth.role,
+                status: refreshData.user.status ?? employeeAuth.status,
+              });
+            }
+          } else if (refreshRes.status === 401) {
+            // Token expired, clear auth and show login
+            setEmployeeAuth(null);
+            setShowLoginModal(true);
+          }
+        }
+      } catch (error) {
+        // Silently handle errors - don't disrupt user experience
+        console.warn("[Employee session refresh] Error:", error);
+      }
+    };
+
+    // Check immediately on mount
+    refreshSession();
+
+    // Then check every 5 minutes
+    const interval = setInterval(refreshSession, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [employeeAuth]);
+
   useEffect(() => {
     const loadLeaves = async () => {
       if (!employeeAuth || !showLeaveSection) return;
@@ -425,10 +517,8 @@ export default function Home() {
     }
     setSubmittingLeave(true);
     try {
-      const res = await fetch("/api/employee/leave", {
+      const created = (await authedFetch("/api/employee/leave", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: leaveType,
           unit: leaveType === "Annual" ? "FullDay" : leaveUnit,
@@ -440,12 +530,7 @@ export default function Home() {
           certificateFile: leaveCertificateFile || undefined,
           documents: leaveDocuments.length > 0 ? leaveDocuments : undefined,
         }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to submit leave request");
-      }
-      const created = data as LeaveRequest;
+      })) as LeaveRequest;
       setLeaveRequests((prev) => [created, ...prev]);
       toast.success("Leave request submitted for approval");
       resetLeaveForm();
@@ -502,10 +587,8 @@ export default function Home() {
     }
     setSubmittingOvertime(true);
     try {
-      const res = await fetch("/api/employee/overtime", {
+      const created = (await authedFetch("/api/employee/overtime", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           date: overtimeDate,
           startTime: overtimeStartTime,
@@ -513,12 +596,7 @@ export default function Home() {
           project: overtimeProject.trim() || undefined,
           description: overtimeDescription.trim(),
         }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to submit overtime request");
-      }
-      const created = data as OvertimeRequest;
+      })) as OvertimeRequest;
       setOvertimeRequests((prev) => [created, ...prev]);
       toast.success("Overtime request submitted for approval");
       resetOvertimeForm();
@@ -532,17 +610,10 @@ export default function Home() {
 
   const handleCancelOvertime = async (id: string) => {
     try {
-      const res = await fetch("/api/employee/overtime", {
+      const updated = (await authedFetch("/api/employee/overtime", {
         method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to cancel overtime request");
-      }
-      const updated = data as OvertimeRequest;
+      })) as OvertimeRequest;
       setOvertimeRequests((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
       toast.success("Overtime request cancelled");
     } catch (error) {
@@ -552,17 +623,10 @@ export default function Home() {
 
   const handleCancelLeave = async (id: string) => {
     try {
-      const res = await fetch("/api/employee/leave", {
+      const updated = (await authedFetch("/api/employee/leave", {
         method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to cancel leave request");
-      }
-      const updated = data as LeaveRequest;
+      })) as LeaveRequest;
       setLeaveRequests((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       toast.success("Leave request cancelled");
     } catch (error) {

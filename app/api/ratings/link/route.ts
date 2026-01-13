@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { connectToDatabase } from "@/lib/db";
 import WorkOrderModel from "@/lib/models/WorkOrder";
 import EmployeeRatingModel from "@/lib/models/EmployeeRating";
-import { requireAuth } from "@/lib.auth";
+import { requireAuth } from "@/lib/auth";
 
 function generateToken() {
   return crypto.randomBytes(24).toString("base64url");

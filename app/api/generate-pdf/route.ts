@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceOrderSchema } from "@/lib/validation";
 import { mapFormDataToServiceOrderData } from "@/lib/pdf-mappers";
-import { generateServiceOrderPDF } from "@/lib/pdf/generateServiceOrderPDF";
+import { generatePdfFromHtml, generatePdfFilename } from "@/lib/pdf-puppeteer";
+import { generateWorkOrderHtml } from "@/lib/pdf-html-template";
 
-// Ensure this route runs in the Node.js runtime so that Buffer and
-// other Node-specific APIs used by @react-pdf/renderer work correctly.
-// Without this, the route may default to the Edge runtime where Buffer
-// is not available, causing PDF generation to fail and breaking preview/download.
+// Ensure this route runs in the Node.js runtime for Puppeteer
 export const runtime = "nodejs";
+
+// Allow up to 30 seconds for PDF generation (Puppeteer can take time on cold starts)
+export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   // Generate request ID for tracking
   const requestId = `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  const isDev = process.env.NODE_ENV !== 'production';
-  
+  const isDev = process.env.NODE_ENV !== "production";
+
   try {
     // Parse the request body
     let body;
@@ -80,14 +81,20 @@ export async function POST(request: NextRequest) {
 
     const data = validationResult.data;
 
-    // Generate PDF using shared core generator
+    // Generate PDF using Puppeteer (faster and better quality than @react-pdf/renderer)
     let pdfBuffer: Buffer;
     let filename: string;
     try {
-      console.log(`[${requestId}] Starting PDF generation via shared generator...`);
-      const result = await generateServiceOrderPDF(data, { requestId });
+      console.log(`[${requestId}] Starting PDF generation via Puppeteer...`);
+
+      // Generate HTML template from form data
+      const html = generateWorkOrderHtml(data, portalType);
+      filename = generatePdfFilename(data.requesterName);
+
+      // Generate PDF from HTML using Puppeteer
+      const result = await generatePdfFromHtml({ html, filename });
       pdfBuffer = result.buffer;
-      filename = result.filename;
+
       console.log(
         `[${requestId}] PDF generated successfully, size: ${pdfBuffer.length} bytes, filename: ${filename}`
       );
@@ -96,19 +103,20 @@ export async function POST(request: NextRequest) {
       if (!pdfBuffer || pdfBuffer.length < 1000) {
         throw new Error("Generated PDF buffer is empty or corrupted");
       }
-    } catch (pdfError: any) {
+    } catch (pdfError: unknown) {
+      const errorMessage = pdfError instanceof Error ? pdfError.message : String(pdfError);
       console.error(`[${requestId}] PDF generation error:`, {
-        type: pdfError?.error || "PDF_GENERATION_FAILED",
-        message: pdfError?.message || String(pdfError),
-        stack: pdfError?.details || pdfError?.stack,
+        type: "PDF_GENERATION_FAILED",
+        message: errorMessage,
+        stack: pdfError instanceof Error ? pdfError.stack : undefined,
       });
       return NextResponse.json(
         {
           success: false,
           error: {
             type: "pdf",
-            message: pdfError?.message || "Failed to generate PDF preview.",
-            details: isDev ? { rawError: String(pdfError?.error || "PDF_GENERATION_FAILED") } : undefined,
+            message: errorMessage || "Failed to generate PDF preview.",
+            details: isDev ? { rawError: "PDF_GENERATION_FAILED" } : undefined,
           },
           requestId: isDev ? requestId : undefined,
         },
@@ -153,4 +161,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

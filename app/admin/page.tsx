@@ -8,8 +8,9 @@ import { FaFileInvoiceDollar, FaFaceGrinStars } from "react-icons/fa6";
 import { MdModeEdit, MdDelete, MdInventory2 } from "react-icons/md";
 import { BsFillSendFill } from "react-icons/bs";
 import { IoMdAddCircle } from "react-icons/io";
-import { IoFilter, IoNotifications, IoSettings, IoTicketSharp } from "react-icons/io5";
+import { IoFilter, IoNotifications, IoSettings, IoTicketSharp, IoDocumentText } from "react-icons/io5";
 import { AiFillNotification } from "react-icons/ai";
+import JobLogs from "@/components/admin/JobLogs";
 import * as XLSX from "xlsx";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -116,6 +117,7 @@ const BASE_TABS = [
   { id: "setup", label: "Setup" },
   { id: "payroll", label: "Payroll" },
   { id: "assign-work", label: "Schedule Works" },
+  { id: "job-logs", label: "Job Logs" },
   { id: "tickets", label: "Tickets" },
   { id: "employee-ratings", label: "Employee Ratings" },
 ] as const;
@@ -405,6 +407,11 @@ export default function AdminDashboard() {
       base.push({ id: "assign-work", label: "Schedule Works", icon: <RiCalendarScheduleFill /> });
     }
     
+    // Job Logs: requires "schedule_works" access (to view completed work orders)
+    if (isAdmin || featureAccess.includes("schedule_works")) {
+      base.push({ id: "job-logs", label: "Job Logs", icon: <IoDocumentText /> });
+    }
+    
     // Tickets: requires "tickets" access
     if (isAdmin || featureAccess.includes("tickets")) {
       base.push({ id: "tickets", label: "Tickets", icon: <IoTicketSharp /> });
@@ -459,6 +466,50 @@ export default function AdminDashboard() {
       },
       credentials: "include",
     });
+    
+    // Handle 401 Unauthorized - token expired or invalid
+    if (res.status === 401) {
+      // Try to refresh the token
+      try {
+        const refreshRes = await fetch("/api/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+        });
+        
+        if (refreshRes.ok) {
+          // Token refreshed successfully, retry original request
+          const retryRes = await fetch(url, {
+            ...init,
+            headers: {
+              "Content-Type": "application/json",
+              ...(init?.headers || {}),
+            },
+            credentials: "include",
+          });
+          
+          if (!retryRes.ok) {
+            // Still failed after refresh - session truly expired
+            setAdminAuth(null);
+            setShowLoginModal(true);
+            const body = await retryRes.json().catch(() => ({}));
+            throw new Error(body.error || "Session expired. Please log in again.");
+          }
+          
+          return retryRes.json();
+        } else {
+          // Refresh failed - session expired
+          setAdminAuth(null);
+          setShowLoginModal(true);
+          throw new Error("Session expired. Please log in again.");
+        }
+      } catch (refreshError) {
+        // Refresh attempt failed
+        setAdminAuth(null);
+        setShowLoginModal(true);
+        throw new Error("Session expired. Please log in again.");
+      }
+    }
+    
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const errorMessage = body.error || "Request failed";
@@ -526,6 +577,63 @@ export default function AdminDashboard() {
     };
     checkSession();
   }, []);
+
+  // Auto-refresh session token when it's older than 12 hours
+  useEffect(() => {
+    if (!adminAuth) return;
+
+    const refreshSession = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { credentials: "include" });
+        if (!res.ok) {
+          // Session invalid, clear auth
+          setAdminAuth(null);
+          setShowLoginModal(true);
+          return;
+        }
+
+        const data = await res.json();
+        if (data?.user) {
+          // Check if token needs refresh (older than 12 hours)
+          // We can't check issuedAt from client, so we refresh proactively
+          // The server will only refresh if token is valid and within threshold
+          const refreshRes = await fetch("/api/auth/refresh", {
+            method: "POST",
+            credentials: "include",
+          });
+
+          if (refreshRes.ok) {
+            // Token refreshed successfully
+            const refreshData = await refreshRes.json();
+            if (refreshData?.user) {
+              setAdminAuth({
+                email: refreshData.user.email || adminAuth.email,
+                name: refreshData.user.name || adminAuth.name,
+                businessUnit: refreshData.user.businessUnit || adminAuth.businessUnit,
+                role: refreshData.user.role || adminAuth.role,
+                featureAccess: refreshData.user.featureAccess || adminAuth.featureAccess,
+              });
+            }
+          } else if (refreshRes.status === 401) {
+            // Token expired, clear auth and show login
+            setAdminAuth(null);
+            setShowLoginModal(true);
+          }
+        }
+      } catch (error) {
+        // Silently handle errors - don't disrupt user experience
+        console.warn("[Session refresh] Error:", error);
+      }
+    };
+
+    // Check immediately on mount
+    refreshSession();
+
+    // Then check every 5 minutes
+    const interval = setInterval(refreshSession, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [adminAuth]);
 
   const loadAdminData = async () => {
     if (!adminAuth) return;
@@ -3783,6 +3891,38 @@ export default function AdminDashboard() {
                     </div>
                   </Card>
                   </>
+                )}
+
+                {activeTab === "job-logs" && (
+                  <JobLogs
+                    workOrders={workOrders}
+                    employees={employees}
+                    onStatusChange={async (orderId, newStatus) => {
+                      try {
+                        const res = await authedFetch("/api/work-orders", {
+                          method: "PUT",
+                          body: JSON.stringify({ id: orderId, status: newStatus }),
+                        });
+                        if (!res.ok) {
+                          const data = await res.json().catch(() => ({}));
+                          throw new Error(data.error || "Failed to update work order status");
+                        }
+                        // Refresh work orders after status change
+                        const refreshRes = await authedFetch("/api/work-orders");
+                        if (refreshRes.ok) {
+                          const data = await refreshRes.json();
+                          setWorkOrders(Array.isArray(data) ? data : data.data || []);
+                        }
+                        toast.success("Work order status updated!");
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Failed to update status");
+                      }
+                    }}
+                    onViewDetails={(order) => {
+                      // Show work order details - you can implement a modal here
+                      toast.success(`Viewing: ${order.customerName} - ${order.workDescription.substring(0, 50)}...`);
+                    }}
+                  />
                 )}
 
                 {activeTab === "tickets" && (

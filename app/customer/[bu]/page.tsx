@@ -61,6 +61,44 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
     },
     credentials: "include",
   });
+  
+  // Handle 401 Unauthorized - token expired or invalid
+  if (res.status === 401) {
+    // Try to refresh the token
+    try {
+      const refreshRes = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+      });
+      
+      if (refreshRes.ok) {
+        // Token refreshed successfully, retry original request
+        const retryRes = await fetch(input, {
+          ...init,
+          headers: {
+            "Content-Type": "application/json",
+            ...(init?.headers || {}),
+          },
+          credentials: "include",
+        });
+        
+        if (!retryRes.ok) {
+          // Still failed after refresh - session truly expired
+          const body = await retryRes.json().catch(() => ({}));
+          throw new Error(body.error || "Session expired. Please log in again.");
+        }
+        
+        return retryRes.json();
+      } else {
+        // Refresh failed - session expired
+        throw new Error("Session expired. Please log in again.");
+      }
+    } catch (refreshError) {
+      // Refresh attempt failed
+      throw new Error("Session expired. Please log in again.");
+    }
+  }
+  
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "Request failed");
@@ -160,6 +198,60 @@ export default function CustomerPortalPage({ params }: PageProps) {
 
     loadSession();
   }, [businessUnit]);
+
+  // Auto-refresh session token when it's older than 12 hours
+  useEffect(() => {
+    if (!session || !businessUnit) return;
+
+    const refreshSession = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { credentials: "include" });
+        if (!res.ok) {
+          // Session invalid, clear auth
+          setSession(null);
+          return;
+        }
+
+        const data = await res.json();
+        if (data?.user) {
+          // Check if token needs refresh (older than 12 hours)
+          // We can't check issuedAt from client, so we refresh proactively
+          // The server will only refresh if token is valid and within threshold
+          const refreshRes = await fetch("/api/auth/refresh", {
+            method: "POST",
+            credentials: "include",
+          });
+
+          if (refreshRes.ok) {
+            // Token refreshed successfully
+            const refreshData = await refreshRes.json();
+            if (refreshData?.user && refreshData.user.role === "customer" && refreshData.user.businessUnit === businessUnit) {
+              setSession({
+                id: refreshData.user.id,
+                email: refreshData.user.email,
+                username: refreshData.user.name,
+                businessUnit: refreshData.user.businessUnit,
+              });
+            }
+          } else if (refreshRes.status === 401) {
+            // Token expired, clear auth
+            setSession(null);
+          }
+        }
+      } catch (error) {
+        // Silently handle errors - don't disrupt user experience
+        console.warn("[Session refresh] Error:", error);
+      }
+    };
+
+    // Check immediately on mount
+    refreshSession();
+
+    // Then check every 5 minutes
+    const interval = setInterval(refreshSession, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [session, businessUnit]);
 
   useEffect(() => {
     if (!session) return;

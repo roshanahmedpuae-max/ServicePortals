@@ -17,6 +17,18 @@
     "app/api/**/*.js": {
       "maxDuration": 30
     },
+    "app/api/generate-pdf/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "app/api/submit-order/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "app/api/auth/refresh/route.ts": {
+      "maxDuration": 30,
+      "memory": 512
+    },
     "app/api/cron/**/*.ts": {
       "maxDuration": 60
     }

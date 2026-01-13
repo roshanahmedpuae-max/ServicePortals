@@ -4,9 +4,11 @@ import { AdminUser, BusinessUnit, Employee, Role, CustomerUser } from "@/lib/typ
 
 const secret = process.env.AUTH_SECRET || "dev-secret-change-me";
 const COOKIE_NAME = "auth_token";
-// Token & cookie lifetime: 7 days (in seconds)
-const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+// Token & cookie lifetime: 1 day (in seconds)
+const MAX_AGE = 60 * 60 * 24; // 1 day
 const MAX_AGE_MS = MAX_AGE * 1000;
+// Refresh threshold: refresh token when it's older than 12 hours
+const REFRESH_THRESHOLD_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 type TokenPayload = {
   id: string;
@@ -37,7 +39,7 @@ export const verifyToken = (token?: string): TokenPayload | null => {
     const payload = JSON.parse(Buffer.from(data, "base64url").toString()) as TokenPayload;
 
     // Enforce max lifetime based on issuedAt so that even if a cookie
-    // lingers, the token itself cannot be used beyond 7 days.
+    // lingers, the token itself cannot be used beyond 1 day.
     if (typeof payload.issuedAt !== "number") {
       return null;
     }
@@ -176,3 +178,22 @@ export const requireFeatureAccess = async (
   return payload;
 };
 
+/**
+ * Check if a token should be refreshed based on its age
+ * Returns true if token is older than REFRESH_THRESHOLD_MS (12 hours)
+ */
+export const shouldRefreshToken = (payload: TokenPayload): boolean => {
+  const ageMs = Date.now() - payload.issuedAt;
+  return ageMs > REFRESH_THRESHOLD_MS;
+};
+
+/**
+ * Refresh a token by issuing a new one with updated issuedAt timestamp
+ * Preserves all user data from the original token
+ */
+export const refreshToken = (payload: TokenPayload): string => {
+  return signToken({
+    ...payload,
+    issuedAt: Date.now(), // Update issuedAt to current time
+  });
+};
